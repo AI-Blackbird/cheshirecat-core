@@ -13,6 +13,17 @@ def generate_timestamp():
 
 
 # base class for setting, used to annotate fastAPI endpoints
+class CrudSettingBody(BaseModel):
+    name: str
+    value: Union[Dict, List]
+
+
+# actual setting class, with additional auto generated id and update time
+class CrudSetting(CrudSettingBody):
+    updated_at: int = Field(default_factory=generate_timestamp)
+
+
+# base class for setting, used to annotate fastAPI endpoints
 class SettingBody(BaseModel):
     name: str
     value: Union[Dict, List]

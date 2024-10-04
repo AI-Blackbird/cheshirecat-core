@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from langchain.docstore.document import Document
 
+from cat.looking_glass.stray_cat import StrayCat
 from cat.mad_hatter.mad_hatter import MadHatter
 from cat.looking_glass import prompts
 from cat.utils import verbal_timedelta, BaseModelDict
@@ -26,7 +27,7 @@ class MainAgent(BaseAgent):
         else:
             self.verbose = False
 
-    async def execute(self, stray) -> AgentOutput:
+    async def execute(self, stray: StrayCat) -> AgentOutput:
         """Execute the agents.
 
         Returns

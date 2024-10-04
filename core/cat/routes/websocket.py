@@ -1,4 +1,3 @@
-
 from cat.auth.permissions import AuthPermission, AuthResource
 from cat.auth.connection import WebSocketAuth
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
@@ -29,7 +28,7 @@ async def receive_message(websocket: WebSocket, stray: StrayCat):
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
-    stray=Depends(WebSocketAuth(AuthResource.CONVERSATION, AuthPermission.WRITE)),
+    stray: StrayCat = Depends(WebSocketAuth(AuthResource.CONVERSATION, AuthPermission.WRITE)),
 ):
     """
     Endpoint to handle incoming WebSocket connections by user id, process messages, and check for messages.

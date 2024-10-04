@@ -14,14 +14,12 @@ from fastapi.testclient import TestClient
 
 from cat.looking_glass.cheshire_cat import CheshireCat
 from cat.looking_glass.stray_cat import StrayCat
-from cat.db.database import Database
+from cat.db.crud_source import CrudSourceSettings
 import cat.utils as utils
 from cat.memory.vector_memory import VectorMemory
 from cat.mad_hatter.plugin import Plugin
 from cat.main import cheshire_cat_api
 from tests.utils import create_mock_plugin_zip
-
-
 
 
 # substitute classes' methods where necessary for testing purposes
@@ -36,9 +34,9 @@ def mock_classes(monkeypatch):
 
     # Use a different json settings db
     def mock_get_file_name(self, *args, **kwargs):
-        return "tests/mocks/metadata-test.json"
+        return "tests/mocks/crud-test.json"
 
-    monkeypatch.setattr(Database().__class__, "get_file_name", mock_get_file_name)
+    monkeypatch.setattr(CrudSourceSettings().__class__, "get_file_name", mock_get_file_name)
 
     # Use mock utils plugin folder
     def get_test_plugin_folder():
@@ -57,6 +55,7 @@ def mock_classes(monkeypatch):
 def clean_up_mocks():
     # clean up service files and mocks
     to_be_removed = [
+        "tests/mocks/crud-test.json",
         "cat/metadata-test.json",  # legacy position, now moved into mocks folder
         "tests/mocks/metadata-test.json",
         "tests/mocks/mock_plugin.zip",

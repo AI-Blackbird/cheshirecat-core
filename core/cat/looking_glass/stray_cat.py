@@ -5,10 +5,14 @@ import tiktoken
 from typing import Literal, get_args, List, Dict, Union, Any
 
 from langchain.docstore.document import Document
+from langchain_core.language_models import BaseLanguageModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers.string import StrOutputParser
+from langchain_community.llms import Cohere
+from langchain_openai import ChatOpenAI, OpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from fastapi import WebSocket
 
@@ -16,9 +20,20 @@ from cat.log import log
 from cat.looking_glass.cheshire_cat import CheshireCat
 from cat.looking_glass.callbacks import NewTokenHandler, ModelInteractionHandler
 from cat.memory.working_memory import WorkingMemory
+from cat.memory.long_term_memory import LongTermMemory
 from cat.convo.messages import CatMessage, UserMessage, MessageWhy, Role, EmbedderModelInteraction
 from cat.agents import AgentOutput
 from cat import utils
+from cat.db import crud
+from cat.factory.llm import LLMDefaultConfig, get_llm_from_name
+from cat.factory.embedder import (
+    EmbedderSettings,
+    EmbedderDumbConfig,
+    EmbedderOpenAIConfig,
+    EmbedderCohereConfig,
+    EmbedderGeminiChatConfig,
+    get_embedder_from_name,
+)
 
 MSG_TYPES = Literal["notification", "chat", "error", "chat_token"]
 
@@ -36,6 +51,15 @@ class StrayCat:
     ):
         self.__user_id = user_id
         self.working_memory = WorkingMemory()
+
+        # Load language model and embedder
+        self._llm = self.load_language_model()
+        self.embedder = self.load_language_embedder()
+
+        # Load memories (vector collections and working_memory)
+        self.memory = self.load_memory()
+
+        self.embed_procedures()  # first time launched manually
 
         # attribute to store ws connection
         self.__ws = ws
@@ -83,6 +107,198 @@ class StrayCat:
         )
 
         return why
+
+    def load_language_model(self) -> BaseLanguageModel:
+        """Large Language Model (LLM) selection.
+
+        Returns
+        -------
+        llm : BaseLanguageModel
+            Langchain `BaseLanguageModel` instance of the selected model.
+
+        Notes
+        -----
+        Bootstrapping is the process of loading the plugins, the natural language objects (e.g. the LLM), the memories,
+        the *Main Agent*, the *Rabbit Hole* and the *White Rabbit*.
+
+        """
+
+        selected_llm = crud.get_setting_by_name(name="llm_selected")
+
+        if selected_llm is None:
+            # return default LLM
+            llm = LLMDefaultConfig.get_llm_from_config({})
+
+        else:
+            # get LLM factory class
+            selected_llm_class = selected_llm["value"]["name"]
+            FactoryClass = get_llm_from_name(selected_llm_class)
+
+            # obtain configuration and instantiate LLM
+            selected_llm_config = crud.get_setting_by_name(name=selected_llm_class)
+            try:
+                llm = FactoryClass.get_llm_from_config(selected_llm_config["value"])
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+                llm = LLMDefaultConfig.get_llm_from_config({})
+
+        return llm
+
+    def load_language_embedder(self) -> EmbedderSettings:
+        """Hook into the  embedder selection.
+
+        Allows to modify how the Cat selects the embedder at bootstrap time.
+
+        Bootstrapping is the process of loading the plugins, the natural language objects (e.g. the LLM), the memories,
+        the *Main Agent*, the *Rabbit Hole* and the *White Rabbit*.
+
+        Parameters
+        ----------
+        cat: CheshireCat
+            Cheshire Cat instance.
+
+        Returns
+        -------
+        embedder : Embeddings
+            Selected embedder model.
+        """
+        # Embedding LLM
+
+        selected_embedder = crud.get_setting_by_name(name="embedder_selected")
+
+        if selected_embedder is not None:
+            # get Embedder factory class
+            selected_embedder_class = selected_embedder["value"]["name"]
+            FactoryClass = get_embedder_from_name(selected_embedder_class)
+
+            # obtain configuration and instantiate Embedder
+            selected_embedder_config = crud.get_setting_by_name(name=selected_embedder_class)
+            try:
+                embedder = FactoryClass.get_embedder_from_config(selected_embedder_config["value"])
+            except AttributeError:
+                import traceback
+
+                traceback.print_exc()
+                embedder = EmbedderDumbConfig.get_embedder_from_config({})
+            return embedder
+
+        llm_type = type(self._llm)
+
+        # OpenAI embedder
+        if llm_type in [OpenAI, ChatOpenAI]:
+            return EmbedderOpenAIConfig.get_embedder_from_config(
+                {
+                    "openai_api_key": self._llm.openai_api_key,
+                }
+            )
+
+        # For Azure avoid automatic embedder selection
+
+        # Cohere
+        if llm_type in [Cohere]:
+            return EmbedderCohereConfig.get_embedder_from_config(
+                {
+                    "cohere_api_key": self._llm.cohere_api_key,
+                    "model": "embed-multilingual-v2.0",
+                    # Now the best model for embeddings is embed-multilingual-v2.0
+                }
+            )
+
+        if llm_type in [ChatGoogleGenerativeAI]:
+            return EmbedderGeminiChatConfig.get_embedder_from_config(
+                {
+                    "model": "models/embedding-001",
+                    "google_api_key": self._llm.google_api_key,
+                }
+            )
+
+        # If no embedder matches vendor, and no external embedder is configured, we use the DumbEmbedder.
+        #   `This embedder is not a model properly trained
+        #    and this makes it not suitable to effectively embed text,
+        #    "but it does not know this and embeds anyway".` - cit. Nicola Corbellini
+        return EmbedderDumbConfig.get_embedder_from_config({})
+
+    def load_memory(self):
+        """Load LongTerMemory and WorkingMemory."""
+        # Memory
+
+        # Get embedder size (langchain classes do not store it)
+        embedder_size = len(self.embedder.embed_query("hello world"))
+
+        # Get embedder name (useful for for vectorstore aliases)
+        if hasattr(self.embedder, "model"):
+            embedder_name = self.embedder.model
+        elif hasattr(self.embedder, "repo_id"):
+            embedder_name = self.embedder.repo_id
+        else:
+            embedder_name = "default_embedder"
+
+        # instantiate long term memory
+        vector_memory_config = {
+            "embedder_name": embedder_name,
+            "embedder_size": embedder_size,
+        }
+        return LongTermMemory(vector_memory_config=vector_memory_config)
+
+    def embed_procedures(self):
+        def get_key_embedded_procedures_hashes(ep):
+            # log.warning(ep)
+            metadata = ep.payload["metadata"]
+            content = ep.payload["page_content"]
+            source = metadata["source"]
+            # there may be legacy points with no trigger_type
+            trigger_type = metadata.get("trigger_type", "unsupported")
+            return f"{source}.{trigger_type}.{content}"
+
+        def get_key_active_procedures_hashes(ap, trigger_type, trigger_content):
+            return f"{ap.name}.{trigger_type}.{trigger_content}"
+
+        # Retrieve from vectorDB all procedural embeddings
+        embedded_procedures = self.memory.vectors.procedural.get_all_points()
+        embedded_procedures_hashes = {get_key_embedded_procedures_hashes(ep): ep.id for ep in embedded_procedures}
+
+        # Easy access to active procedures in mad_hatter (source of truth!)
+        active_procedures_hashes = {get_key_active_procedures_hashes(ap, trigger_type, trigger_content): {
+            "obj": ap,
+            "source": ap.name,
+            "type": ap.procedure_type,
+            "trigger_type": trigger_type,
+            "content": trigger_content,
+        } for ap in self.mad_hatter.procedures for trigger_type, trigger_list in ap.triggers_map.items() for trigger_content in trigger_list}
+
+        # points_to_be_kept = set(active_procedures_hashes.keys()) and set(embedded_procedures_hashes.keys()) not necessary
+        points_to_be_deleted = set(embedded_procedures_hashes.keys()) - set(
+            active_procedures_hashes.keys()
+        )
+        points_to_be_embedded = set(active_procedures_hashes.keys()) - set(
+            embedded_procedures_hashes.keys()
+        )
+
+        if points_to_be_deleted_ids := [embedded_procedures_hashes[p] for p in points_to_be_deleted]:
+            log.warning(f"Deleting triggers: {points_to_be_deleted}")
+            self.memory.vectors.procedural.delete_points(points_to_be_deleted_ids)
+
+        active_triggers_to_be_embedded = [active_procedures_hashes[p] for p in points_to_be_embedded]
+        for t in active_triggers_to_be_embedded:
+            metadata = {
+                "source": t["source"],
+                "type": t["type"],
+                "trigger_type": t["trigger_type"],
+                "when": time.time(),
+            }
+
+            trigger_embedding = self.embedder.embed_documents([t["content"]])
+            self.memory.vectors.procedural.add_point(
+                t["content"],
+                trigger_embedding[0],
+                metadata,
+            )
+
+            log.warning(
+                f"Newly embedded {t['type']} trigger: {t['source']}, {t['trigger_type']}, {t['content']}"
+            )
 
     def send_ws_message(self, content: str, msg_type: MSG_TYPES = "notification"):
         """Send a message via websocket.
@@ -291,8 +507,6 @@ class StrayCat:
         # Add a token counter to the callbacks
         caller = utils.get_caller_info()
         callbacks.append(ModelInteractionHandler(self, caller or "StrayCat"))
-
-        
 
         # here we deal with motherfucking langchain
         prompt = ChatPromptTemplate(
@@ -578,18 +792,6 @@ Allowed classes are:
     @property
     def user_id(self):
         return self.__user_id
-
-    @property
-    def _llm(self):
-        return CheshireCat()._llm
-
-    @property
-    def embedder(self):
-        return CheshireCat().embedder
-
-    @property
-    def memory(self):
-        return CheshireCat().memory
 
     @property
     def rabbit_hole(self):

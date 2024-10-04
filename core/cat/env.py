@@ -16,6 +16,7 @@ def get_supported_env_variables():
         "CCAT_QDRANT_API_KEY": None,
         "CCAT_SAVE_MEMORY_SNAPSHOTS": "false",
         "CCAT_METADATA_FILE": "cat/data/metadata.json",
+        "CCAT_CRUD_SETTINGS_FILE": "cat/data/crud.json",
         "CCAT_JWT_SECRET": "secret",
         "CCAT_JWT_ALGORITHM": "HS256",
         "CCAT_JWT_EXPIRE_MINUTES": str(60 * 24),  # JWT expires after 1 day

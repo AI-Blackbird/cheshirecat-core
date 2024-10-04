@@ -1,82 +1,50 @@
 from typing import Dict, List
 from uuid import uuid4
 
-from tinydb import Query
-
 from cat.auth.permissions import get_full_permissions, get_base_permissions
 from cat.auth.auth_utils import hash_password
-from cat.db import models
-from cat.db.database import get_db
+from cat.db.models import Setting
+from cat.factory.crud_source import get_db
 
 
 def get_settings(search: str = "") -> List[Dict]:
-    query = Query()
-    settings = get_db().search(query.name.matches(search))
+    settings = get_db().get_settings(search)
     # Workaround: do not expose users in the settings list
     settings = [s for s in settings if s["name"] != "users"]
     return settings
 
 
 def get_settings_by_category(category: str) -> List[Dict]:
-    query = Query()
-    return get_db().search(query.category == category)
+    return get_db().get_settings_by_category(category)
 
 
-def create_setting(payload: models.Setting) -> Dict:
+def create_setting(payload: Setting) -> Dict:
     # Missing fields (setting_id, updated_at) are filled automatically by pydantic
-    get_db().insert(payload.model_dump())
-
-    # retrieve the record we just created
-    new_record = get_setting_by_id(payload.setting_id)
-
-    return new_record
+    return get_db().create_setting(payload)
 
 
-def get_setting_by_name(name: str) -> Dict:
-    query = Query()
-    result = get_db().search(query.name == name)
-    if len(result) > 0:
-        return result[0]
-    else:
-        return None
+def get_setting_by_name(name: str) -> Dict | None:
+    return get_db().get_setting_by_name(name)
 
 
-def get_setting_by_id(setting_id: str) -> Dict:
-    query = Query()
-    result = get_db().search(query.setting_id == setting_id)
-    if len(result) > 0:
-        return result[0]
-    else:
-        return None
+def get_setting_by_id(setting_id: str) -> Dict | None:
+    return get_db().get_setting_by_name(setting_id)
 
 
 def delete_setting_by_id(setting_id: str) -> None:
-    query = Query()
-    get_db().remove(query.setting_id == setting_id)
+    get_db().delete_setting_by_id(setting_id)
 
 
 def delete_settings_by_category(category: str) -> None:
-    query = Query()
-    get_db().remove(query.category == category)
+    get_db().delete_settings_by_category(category)
 
 
-def update_setting_by_id(payload: models.Setting) -> Dict:
-    query = Query()
-    get_db().update(payload, query.setting_id == payload.setting_id)
-
-    return get_setting_by_id(payload.setting_id)
+def update_setting_by_id(payload: Setting) -> Dict:
+    return get_db().update_setting_by_id(payload)
 
 
-def upsert_setting_by_name(payload: models.Setting) -> models.Setting:
-    old_setting = get_setting_by_name(payload.name)
-
-    if not old_setting:
-        create_setting(payload)
-    else:
-        query = Query()
-        get_db().update(payload, query.name == payload.name)
-
-    return get_setting_by_name(payload.name)
+def upsert_setting_by_name(payload: Setting) -> Setting:
+    return get_db().upsert_setting_by_name(payload)
 
 
 # We store users in a setting and when there will be a graph db in the cat, we will store them there.
@@ -106,8 +74,8 @@ def get_users() -> Dict[str, Dict]:
         })
     return get_setting_by_name("users")["value"]
 
-def update_users(users: Dict[str, Dict]) -> Dict[str, Dict]:
-    updated_users = models.Setting(
+def update_users(users: Dict[str, Dict]) -> Setting:
+    updated_users = Setting(
         name="users",
         value=users
     )

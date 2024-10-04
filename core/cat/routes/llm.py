@@ -8,10 +8,11 @@ from cat.factory.llm import get_llms_schemas
 from cat.db import crud, models
 from cat.log import log
 from cat import utils
+from cat.looking_glass.stray_cat import StrayCat
 
 router = APIRouter()
 
-# general LLM settings are saved in settigns table under this category
+# general LLM settings are saved in settings table under this category
 LLM_SELECTED_CATEGORY = "llm"
 
 # llm type and config are saved in settings table under this category
@@ -24,7 +25,7 @@ LLM_SELECTED_NAME = "llm_selected"
 # get configured LLMs and configuration schemas
 @router.get("/settings")
 def get_llms_settings(
-    stray=Depends(HTTPAuth(AuthResource.LLM, AuthPermission.LIST)),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.LLM, AuthPermission.LIST)),
 ) -> Dict:
     """Get the list of the Large Language Models"""
     LLM_SCHEMAS = get_llms_schemas()
@@ -63,7 +64,7 @@ def get_llms_settings(
 def get_llm_settings(
     request: Request,
     languageModelName: str,
-    stray=Depends(HTTPAuth(AuthResource.LLM, AuthPermission.READ)),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.LLM, AuthPermission.READ)),
 ) -> Dict:
     """Get settings and schema of the specified Large Language Model"""
     LLM_SCHEMAS = get_llms_schemas()
@@ -94,7 +95,7 @@ def upsert_llm_setting(
     request: Request,
     languageModelName: str,
     payload: Dict = Body({"openai_api_key": "your-key-here"}),
-    stray=Depends(HTTPAuth(AuthResource.LLM, AuthPermission.EDIT)),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.LLM, AuthPermission.EDIT)),
 ) -> Dict:
     """Upsert the Large Language Model setting"""
     LLM_SCHEMAS = get_llms_schemas()
@@ -124,15 +125,12 @@ def upsert_llm_setting(
 
     status = {"name": languageModelName, "value": final_setting["value"]}
 
-    ccat = request.app.state.ccat
-    # reload llm and embedder of the cat
-    ccat.load_natural_language()
     # crete new collections
     # (in case embedder is not configured, it will be changed automatically and aligned to vendor)
     # TODO: should we take this feature away?
     # Exception handling in case an incorrect key is loaded.
     try:
-        ccat.load_memory()
+        stray.load_memory()
     except Exception as e:
         log.error(e)
         crud.delete_settings_by_category(category=LLM_SELECTED_CATEGORY)
@@ -141,6 +139,6 @@ def upsert_llm_setting(
             status_code=400, detail={"error": utils.explicit_error_message(e)}
         )
     # recreate tools embeddings
-    ccat.mad_hatter.find_plugins()
+    request.app.state.ccat.mad_hatter.find_plugins()
 
     return status

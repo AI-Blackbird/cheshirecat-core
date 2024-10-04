@@ -8,6 +8,7 @@ from cat.factory.embedder import get_allowed_embedder_models, get_embedders_sche
 from cat.db import crud, models
 from cat.log import log
 from cat import utils
+from cat.looking_glass.stray_cat import StrayCat
 
 router = APIRouter()
 
@@ -25,7 +26,7 @@ EMBEDDER_SELECTED_NAME = "embedder_selected"
 @router.get("/settings")
 def get_embedders_settings(
     request: Request,
-    stray=Depends(HTTPAuth(AuthResource.EMBEDDER, AuthPermission.LIST)),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.EMBEDDER, AuthPermission.LIST)),
 ) -> Dict:
     """Get the list of the Embedders"""
 
@@ -38,9 +39,8 @@ def get_embedders_settings(
         # TODO: take away automatic embedder settings in v2
         # If DB does not contain a selected embedder, it means an embedder was automatically selected.
         # Deduce selected embedder:
-        ccat = request.app.state.ccat
         for embedder_config_class in reversed(SUPPORTED_EMDEDDING_MODELS):
-            if isinstance(ccat.embedder, embedder_config_class._pyclass.default):
+            if isinstance(stray.embedder, embedder_config_class._pyclass.default):
                 selected = embedder_config_class.__name__
 
     saved_settings = crud.get_settings_by_category(category=EMBEDDER_CATEGORY)
@@ -72,7 +72,7 @@ def get_embedders_settings(
 def get_embedder_settings(
     request: Request,
     languageEmbedderName: str,
-    stray=Depends(HTTPAuth(AuthResource.EMBEDDER, AuthPermission.READ)),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.EMBEDDER, AuthPermission.READ)),
 ) -> Dict:
     """Get settings and schema of the specified Embedder"""
 
@@ -103,12 +103,12 @@ def upsert_embedder_setting(
     request: Request,
     languageEmbedderName: str,
     payload: Dict = Body({"openai_api_key": "your-key-here"}),
-    stray=Depends(HTTPAuth(AuthResource.EMBEDDER, AuthPermission.EDIT)),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.EMBEDDER, AuthPermission.EDIT)),
 ) -> Dict:
     """Upsert the Embedder setting"""
 
     EMBEDDER_SCHEMAS = get_embedders_schemas()
-    # check that languageModelName is a valid name
+    # check that languageEmbedderName is a valid name
     allowed_configurations = list(EMBEDDER_SCHEMAS.keys())
     if languageEmbedderName not in allowed_configurations:
         raise HTTPException(
@@ -120,8 +120,6 @@ def upsert_embedder_setting(
 
     # get selected config if any
     selected = crud.get_setting_by_name(name=EMBEDDER_SELECTED_NAME)
-    if selected is not None:
-        current_settings = crud.get_setting_by_name(name=selected["value"]["name"])
 
     # create the setting and upsert it
     final_setting = crud.upsert_setting_by_name(
@@ -140,12 +138,9 @@ def upsert_embedder_setting(
 
     status = {"name": languageEmbedderName, "value": final_setting["value"]}
 
-    ccat = request.app.state.ccat
-    # reload llm and embedder of the cat
-    ccat.load_natural_language()
     # crete new collections (different embedder!)
     try:
-        ccat.load_memory()
+        stray.load_memory()
     except Exception as e:
         log.error(e)
         crud.delete_settings_by_category(category=EMBEDDER_SELECTED_CATEGORY)
@@ -153,6 +148,8 @@ def upsert_embedder_setting(
 
         # if a selected config is present, restore it
         if selected is not None:
+            current_settings = crud.get_setting_by_name(name=selected["value"]["name"])
+
             languageEmbedderName = selected["value"]["name"]
             crud.upsert_setting_by_name(
                 models.Setting(
@@ -168,13 +165,11 @@ def upsert_embedder_setting(
                     value={"name": languageEmbedderName},
                 )
             )
-            # reload llm and embedder of the cat
-            ccat.load_natural_language()
 
         raise HTTPException(
             status_code=400, detail={"error": utils.explicit_error_message(e)}
         )
     # recreate tools embeddings
-    ccat.mad_hatter.find_plugins()
+    request.app.state.ccat.mad_hatter.find_plugins()
 
     return status
