@@ -33,11 +33,10 @@ class BaseAuthHandler(ABC):  # TODOAUTH: pydantic model?
             return await self.authorize_user_from_jwt(
                 credential, auth_resource, auth_permission
             )
-        else:
-            # API_KEY auth
-            return await self.authorize_user_from_key(
-                user_id, credential, auth_resource, auth_permission
-            )
+        # API_KEY auth
+        return await self.authorize_user_from_key(
+            user_id, credential, auth_resource, auth_permission
+        )
 
     @abstractmethod
     async def authorize_user_from_jwt(
@@ -60,7 +59,6 @@ class BaseAuthHandler(ABC):  # TODOAUTH: pydantic model?
 
 # Core auth handler, verify token on local idp
 class CoreAuthHandler(BaseAuthHandler):
-
     async def authorize_user_from_jwt(
         self, token: str, auth_resource: AuthResource, auth_permission: AuthPermission
     ) -> AuthUserInfo | None:

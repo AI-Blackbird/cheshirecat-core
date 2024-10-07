@@ -44,7 +44,7 @@ async def recall_memories_from_text(
     recalled = {}
     for c in collections:
         # only episodic collection has users
-        user_id = stray.user_id
+        user_id=stray.user_id
         if c == "episodic":
             user_filter = {"source": user_id}
         else:

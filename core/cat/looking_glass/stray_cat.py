@@ -1,6 +1,8 @@
 import time
 import asyncio
 import traceback
+from asyncio import AbstractEventLoop
+
 import tiktoken
 from typing import Literal, get_args, List, Dict, Union, Any
 
@@ -16,19 +18,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from fastapi import WebSocket
 
+from cat import utils
+from cat.agents import AgentOutput
 from cat.agents.main_agent import MainAgent
 from cat.auth.permissions import AuthUserInfo
-from cat.env import get_env
-from cat.log import log
-from cat.looking_glass.cheshire_cat import CheshireCat
-from cat.looking_glass.callbacks import NewTokenHandler, ModelInteractionHandler
-from cat.memory.working_memory import WorkingMemory
-from cat.memory.long_term_memory import LongTermMemory
 from cat.convo.messages import CatMessage, UserMessage, MessageWhy, Role, EmbedderModelInteraction
-from cat.agents import AgentOutput
-from cat import utils
 from cat.db import crud
-from cat.factory.llm import LLMDefaultConfig, get_llm_from_name
+from cat.env import get_env
 from cat.factory.embedder import (
     EmbedderSettings,
     EmbedderDumbConfig,
@@ -37,6 +33,15 @@ from cat.factory.embedder import (
     EmbedderGeminiChatConfig,
     get_embedder_from_name,
 )
+from cat.factory.llm import LLMDefaultConfig, get_llm_from_name
+from cat.log import log
+from cat.looking_glass.cheshire_cat import CheshireCat
+from cat.looking_glass.callbacks import NewTokenHandler, ModelInteractionHandler
+from cat.looking_glass.white_rabbit import WhiteRabbit
+from cat.mad_hatter.mad_hatter import MadHatter
+from cat.memory.working_memory import WorkingMemory
+from cat.memory.long_term_memory import LongTermMemory
+from cat.rabbit_hole import RabbitHole
 
 MSG_TYPES = Literal["notification", "chat", "error", "chat_token"]
 
@@ -45,14 +50,8 @@ MSG_TYPES = Literal["notification", "chat", "error", "chat_token"]
 class StrayCat:
     """User/session based object containing working memory and a few utility pointers"""
 
-    def __init__(
-        self,
-        user_id: str,
-        main_loop,
-        user_data: AuthUserInfo = None,
-        ws: WebSocket = None,
-    ):
-        self.__user_id = user_id
+    def __init__(self, main_loop, user_data: AuthUserInfo = None, ws: WebSocket = None):
+        self.__user = user_data
         self.working_memory = WorkingMemory()
 
         # Load language model and embedder
@@ -82,27 +81,21 @@ class StrayCat:
         return f"StrayCat(user_id={self.user_id})"
 
     def __send_ws_json(self, data: Any):
-        self.__last_message_time = time.time()
-
         # Run the coroutine in the main event loop in the main thread
         # and wait for the result
         asyncio.run_coroutine_threadsafe(self.ws.send_json(data), loop=self.__main_loop).result()
 
     def __build_why(self) -> MessageWhy:
+        def build_report(memories):
+            return [
+                dict(d[0]) | {"score": float(d[1]), "id": d[3]}
+                for d in memories
+            ]
+
         # build data structure for output (response and why with memories)
-        # TODO: these 3 lines are a mess, simplify
-        episodic_report = [
-            dict(d[0]) | {"score": float(d[1]), "id": d[3]}
-            for d in self.working_memory.episodic_memories
-        ]
-        declarative_report = [
-            dict(d[0]) | {"score": float(d[1]), "id": d[3]}
-            for d in self.working_memory.declarative_memories
-        ]
-        procedural_report = [
-            dict(d[0]) | {"score": float(d[1]), "id": d[3]}
-            for d in self.working_memory.procedural_memories
-        ]
+        episodic_report = build_report(self.working_memory.episodic_memories)
+        declarative_report = build_report(self.working_memory.declarative_memories)
+        procedural_report = build_report(self.working_memory.procedural_memories)
 
         # why this response?
         why = MessageWhy(
@@ -133,19 +126,18 @@ class StrayCat:
 
         """
 
-        selected_llm = crud.get_setting_by_name(name="llm_selected")
+        selected_llm = crud.get_setting_by_name(name="llm_selected", user_id=self.user_id)
 
         if selected_llm is None:
             # return default LLM
             llm = LLMDefaultConfig.get_llm_from_config({})
-
         else:
             # get LLM factory class
             selected_llm_class = selected_llm["value"]["name"]
             FactoryClass = get_llm_from_name(selected_llm_class)
 
             # obtain configuration and instantiate LLM
-            selected_llm_config = crud.get_setting_by_name(name=selected_llm_class)
+            selected_llm_config = crud.get_setting_by_name(name=selected_llm_class, user_id=self.user_id)
             try:
                 llm = FactoryClass.get_llm_from_config(selected_llm_config["value"])
             except Exception:
@@ -171,7 +163,7 @@ class StrayCat:
         """
         # Embedding LLM
 
-        selected_embedder = crud.get_setting_by_name(name="embedder_selected")
+        selected_embedder = crud.get_setting_by_name(name="embedder_selected", user_id=self.user_id)
 
         if selected_embedder is not None:
             # get Embedder factory class
@@ -179,7 +171,7 @@ class StrayCat:
             FactoryClass = get_embedder_from_name(selected_embedder_class)
 
             # obtain configuration and instantiate Embedder
-            selected_embedder_config = crud.get_setting_by_name(name=selected_embedder_class)
+            selected_embedder_config = crud.get_setting_by_name(name=selected_embedder_class, user_id=self.user_id)
             try:
                 embedder = FactoryClass.get_embedder_from_config(selected_embedder_config["value"])
             except AttributeError:
@@ -345,7 +337,7 @@ class StrayCat:
 
         if save:
             self.working_memory.update_conversation_history(
-                who="AI", message=message["content"], why=message["why"]
+                who="AI", message=message["content"], why=message.why
             )
 
         self.__send_ws_json(message.model_dump())
@@ -523,7 +515,7 @@ class StrayCat:
         chain = (
             prompt
             | RunnableLambda(lambda x: utils.langchain_log_prompt(x, f"{caller} prompt"))
-            | self._llm
+            | self.llm
             | RunnableLambda(lambda x: utils.langchain_log_output(x, f"{caller} prompt output"))
             | StrOutputParser()
         )
@@ -663,6 +655,8 @@ class StrayCat:
             who="AI", message=final_output.content, why=final_output.why
         )
 
+        self.__last_message_time = time.time()
+
         return final_output
 
     def run(self, user_message_json):
@@ -789,25 +783,28 @@ Allowed classes are:
         return langchain_chat_history
 
     @property
-    def user_id(self):
-        return self.__user_id
+    def user_id(self) -> str:
+        return self.__user.id
 
     @property
-    def rabbit_hole(self):
+    def rabbit_hole(self) -> RabbitHole:
         return CheshireCat().rabbit_hole
 
     @property
-    def mad_hatter(self):
+    def mad_hatter(self) -> MadHatter:
         return CheshireCat().mad_hatter
 
     @property
-    def white_rabbit(self):
+    def white_rabbit(self) -> WhiteRabbit:
         return CheshireCat().white_rabbit
 
     @property
-    def loop(self):
+    def loop(self) -> AbstractEventLoop:
         return self.__loop
 
     @property
-    def is_idle(self):
-        return time.time() - self.__last_message_time >= get_env("CCAT_STRAYCAT_TIMEOUT")
+    def is_idle(self) -> bool:
+        if not self.__last_message_time:
+            return False
+
+        return time.time() - self.__last_message_time >= float(get_env("CCAT_STRAYCAT_TIMEOUT"))

@@ -21,11 +21,11 @@ def get_auth_handler_settings(request: Request) -> Dict:
     """Get the list of the AuthHandlers"""
 
     # get selected AuthHandler
-    selected = crud.get_setting_by_name(name=AUTH_HANDLER_SELECTED_NAME)
+    selected = crud.get_auth_setting_by_name(name=AUTH_HANDLER_SELECTED_NAME)
     if selected is not None:
         selected = selected["value"]["name"]
 
-    saved_settings = crud.get_settings_by_category(category=AUTH_HANDLER_CATEGORY)
+    saved_settings = crud.get_auth_settings_by_category(category=AUTH_HANDLER_CATEGORY)
     saved_settings = {s["name"]: s for s in saved_settings}
 
     settings = []
@@ -67,7 +67,7 @@ def get_auth_handler_setting(request: Request, auth_handler_name: str) -> Dict:
             },
         )
 
-    setting = crud.get_setting_by_name(name=auth_handler_name)
+    setting = crud.get_auth_setting_by_name(name=auth_handler_name)
     schema = AUTH_HANDLER_SCHEMAS[auth_handler_name]
 
     if setting is None:
@@ -100,13 +100,13 @@ def upsert_authenticator_setting(
             },
         )
 
-    crud.upsert_setting_by_name(
+    crud.upsert_auth_setting_by_name(
         models.Setting(
             name=auth_handler_name, value=payload, category=AUTH_HANDLER_CATEGORY
         )
     )
 
-    crud.upsert_setting_by_name(
+    crud.upsert_auth_setting_by_name(
         models.Setting(
             name=AUTH_HANDLER_SELECTED_NAME,
             value={"name": auth_handler_name},

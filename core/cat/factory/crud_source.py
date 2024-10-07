@@ -2,8 +2,8 @@ from typing import Type, Dict, List
 from pydantic import BaseModel, ConfigDict
 
 from cat.db.crud_source import CrudSource, get_crud_settings
-from cat.db.database_source import Database
-from cat.db.redis_source import Redis
+from cat.db.database_source import DatabaseCrudSource
+from cat.db.redis_source import RedisCrudSource
 from cat.env import get_env
 from cat.mad_hatter.mad_hatter import MadHatter
 
@@ -15,7 +15,7 @@ class CrudSettings(BaseModel):
 
     # instantiate a crud from configuration
     @classmethod
-    def get_crud_source_from_config(cls, config):
+    def get_crud_source_from_config(cls, config) -> CrudSource:
         if cls._pyclass is None:
             raise Exception(
                 "Configuration class has self._pyclass==None. Should be a valid CrudSource class"
@@ -25,7 +25,7 @@ class CrudSettings(BaseModel):
 
 class TinyDbCrudConfig(CrudSettings):
     file: str
-    _pyclass: Type = Database
+    _pyclass: Type = DatabaseCrudSource
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -40,7 +40,7 @@ class RedisCrudConfig(CrudSettings):
     port: int = 6379
     db: int = 0
     password: str | None = None
-    _pyclass: Type = Redis
+    _pyclass: Type = RedisCrudSource
 
     model_config = ConfigDict(
         json_schema_extra={

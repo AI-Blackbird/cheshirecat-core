@@ -11,8 +11,7 @@ from pydantic import PydanticDeprecatedSince20
 from qdrant_client import QdrantClient
 from fastapi.testclient import TestClient
 
-
-from cat.looking_glass.cheshire_cat import CheshireCat
+from cat.auth.permissions import AuthUserInfo
 from cat.looking_glass.stray_cat import StrayCat
 from cat.db.crud_source import CrudSourceSettings
 import cat.utils as utils
@@ -133,9 +132,9 @@ def just_installed_plugin(client):
 # fixture to have available an instance of StrayCat
 @pytest.fixture
 def stray(client):
-    user_id = "Alice"
-    stray_cat = StrayCat(user_id=user_id, main_loop=asyncio.new_event_loop())
-    stray_cat.working_memory.user_message_json = {"user_id": user_id, "text": "meow"}
+    user = AuthUserInfo(id="user_alice", name="Alice")
+    stray_cat = StrayCat(user_data=user, main_loop=asyncio.new_event_loop())
+    stray_cat.working_memory.user_message_json = {"user_id": user.id, "text": "meow"}
     yield stray_cat
 
 # autouse fixture will be applied to *all* the tests

@@ -32,7 +32,7 @@ def get_embedders_settings(
 
     SUPPORTED_EMDEDDING_MODELS = get_allowed_embedder_models()
     # get selected Embedder, if any
-    selected = crud.get_setting_by_name(name=EMBEDDER_SELECTED_NAME)
+    selected = crud.get_setting_by_name(name=EMBEDDER_SELECTED_NAME, user_id=stray.user_id)
     if selected is not None:
         selected = selected["value"]["name"]
     else:
@@ -43,7 +43,7 @@ def get_embedders_settings(
             if isinstance(stray.embedder, embedder_config_class._pyclass.default):
                 selected = embedder_config_class.__name__
 
-    saved_settings = crud.get_settings_by_category(category=EMBEDDER_CATEGORY)
+    saved_settings = crud.get_settings_by_category(category=EMBEDDER_CATEGORY, user_id=stray.user_id)
     saved_settings = {s["name"]: s for s in saved_settings}
 
     settings = []
@@ -87,7 +87,7 @@ def get_embedder_settings(
             },
         )
 
-    setting = crud.get_setting_by_name(name=languageEmbedderName)
+    setting = crud.get_setting_by_name(name=languageEmbedderName, user_id=stray.user_id)
     schema = EMBEDDER_SCHEMAS[languageEmbedderName]
 
     if setting is None:
@@ -119,13 +119,14 @@ def upsert_embedder_setting(
         )
 
     # get selected config if any
-    selected = crud.get_setting_by_name(name=EMBEDDER_SELECTED_NAME)
+    selected = crud.get_setting_by_name(name=EMBEDDER_SELECTED_NAME, user_id=stray.user_id)
 
     # create the setting and upsert it
     final_setting = crud.upsert_setting_by_name(
         models.Setting(
             name=languageEmbedderName, category=EMBEDDER_CATEGORY, value=payload
-        )
+        ),
+        user_id=stray.user_id
     )
 
     crud.upsert_setting_by_name(
@@ -133,7 +134,8 @@ def upsert_embedder_setting(
             name=EMBEDDER_SELECTED_NAME,
             category=EMBEDDER_SELECTED_CATEGORY,
             value={"name": languageEmbedderName},
-        )
+        ),
+        user_id=stray.user_id
     )
 
     status = {"name": languageEmbedderName, "value": final_setting["value"]}
@@ -143,12 +145,12 @@ def upsert_embedder_setting(
         stray.load_memory()
     except Exception as e:
         log.error(e)
-        crud.delete_settings_by_category(category=EMBEDDER_SELECTED_CATEGORY)
-        crud.delete_settings_by_category(category=EMBEDDER_CATEGORY)
+        crud.delete_settings_by_category(category=EMBEDDER_SELECTED_CATEGORY, user_id=stray.user_id)
+        crud.delete_settings_by_category(category=EMBEDDER_CATEGORY, user_id=stray.user_id)
 
         # if a selected config is present, restore it
         if selected is not None:
-            current_settings = crud.get_setting_by_name(name=selected["value"]["name"])
+            current_settings = crud.get_setting_by_name(name=selected["value"]["name"], user_id=stray.user_id)
 
             languageEmbedderName = selected["value"]["name"]
             crud.upsert_setting_by_name(
@@ -156,14 +158,16 @@ def upsert_embedder_setting(
                     name=languageEmbedderName,
                     category=EMBEDDER_CATEGORY,
                     value=current_settings["value"],
-                )
+                ),
+                user_id=stray.user_id
             )
             crud.upsert_setting_by_name(
                 models.Setting(
                     name=EMBEDDER_SELECTED_NAME,
                     category=EMBEDDER_SELECTED_CATEGORY,
                     value={"name": languageEmbedderName},
-                )
+                ),
+                user_id=stray.user_id
             )
 
         raise HTTPException(

@@ -44,6 +44,25 @@ class CrudSource(ABC):
     def upsert_setting_by_name(self, payload: Setting, *args, **kwargs) -> Setting:
         pass
 
+    @abstractmethod
+    def get_users(self, *args, **kwargs) -> Dict[str, Dict]:
+        pass
+
+    @abstractmethod
+    def update_users(self, users: Dict[str, Dict], *args, **kwargs) -> Dict | None:
+        pass
+
+    @abstractmethod
+    def get_auth_setting_by_name(self, name: str) -> Dict | None:
+        pass
+
+    @abstractmethod
+    def get_auth_settings_by_category(self, category: str) -> List[Dict]:
+        pass
+
+    @abstractmethod
+    def upsert_auth_setting_by_name(self, payload: Setting) -> Dict | None:
+        pass
 
 @singleton
 class CrudSourceSettings:

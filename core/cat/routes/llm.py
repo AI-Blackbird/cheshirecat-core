@@ -31,11 +31,11 @@ def get_llms_settings(
     LLM_SCHEMAS = get_llms_schemas()
 
     # get selected LLM, if any
-    selected = crud.get_setting_by_name(name=LLM_SELECTED_NAME)
+    selected = crud.get_setting_by_name(name=LLM_SELECTED_NAME, user_id=stray.user_id)
     if selected is not None:
         selected = selected["value"]["name"]
 
-    saved_settings = crud.get_settings_by_category(category=LLM_CATEGORY)
+    saved_settings = crud.get_settings_by_category(category=LLM_CATEGORY, user_id=stray.user_id)
     saved_settings = {s["name"]: s for s in saved_settings}
 
     settings = []
@@ -79,7 +79,7 @@ def get_llm_settings(
             },
         )
 
-    setting = crud.get_setting_by_name(name=languageModelName)
+    setting = crud.get_setting_by_name(name=languageModelName, user_id=stray.user_id)
     schema = LLM_SCHEMAS[languageModelName]
 
     if setting is None:
@@ -112,15 +112,12 @@ def upsert_llm_setting(
 
     # create the setting and upsert it
     final_setting = crud.upsert_setting_by_name(
-        models.Setting(name=languageModelName, category=LLM_CATEGORY, value=payload)
+        models.Setting(name=languageModelName, category=LLM_CATEGORY, value=payload), user_id=stray.user_id
     )
 
     crud.upsert_setting_by_name(
-        models.Setting(
-            name=LLM_SELECTED_NAME,
-            category=LLM_SELECTED_CATEGORY,
-            value={"name": languageModelName},
-        )
+        models.Setting(name=LLM_SELECTED_NAME, category=LLM_SELECTED_CATEGORY, value={"name": languageModelName}),
+        user_id=stray.user_id
     )
 
     status = {"name": languageModelName, "value": final_setting["value"]}
@@ -133,8 +130,8 @@ def upsert_llm_setting(
         stray.load_memory()
     except Exception as e:
         log.error(e)
-        crud.delete_settings_by_category(category=LLM_SELECTED_CATEGORY)
-        crud.delete_settings_by_category(category=LLM_CATEGORY)
+        crud.delete_settings_by_category(category=LLM_SELECTED_CATEGORY, user_id=stray.user_id)
+        crud.delete_settings_by_category(category=LLM_CATEGORY, user_id=stray.user_id)
         raise HTTPException(
             status_code=400, detail={"error": utils.explicit_error_message(e)}
         )

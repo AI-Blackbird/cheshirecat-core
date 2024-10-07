@@ -46,5 +46,5 @@ async def websocket_endpoint(
         log.info("WebSocket connection closed")
     finally:
         # remove the StrayCat related to the user_id, if idle
-        if stray.is_idle():
+        if stray.is_idle:
             del request.app.state.strays[stray.user_id]

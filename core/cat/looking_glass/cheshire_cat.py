@@ -27,13 +27,7 @@ class Procedure(Protocol):
 class CheshireCat:
     """The Cheshire Cat.
 
-    This is the main class that manages everything.
-
-    Attributes
-    ----------
-    todo : list
-        Yet to be written.
-
+    This is the main class that manages everything. It is a singleton, so there is only one instance of it.
     """
 
     def __init__(self):
@@ -45,6 +39,9 @@ class CheshireCat:
         # bootstrap the Cat! ^._.^
 
         # instantiate MadHatter (loads all plugins' hooks and tools)
+        self.core_auth_handler = None
+        self.custom_auth_handler = None
+
         self.mad_hatter = MadHatter()
 
         # load AuthHandler
@@ -64,17 +61,17 @@ class CheshireCat:
 
     def load_auth(self):
         # Custom auth_handler # TODOAUTH: change the name to custom_auth
-        selected_auth_handler = crud.get_setting_by_name(name="auth_handler_selected")
+        selected_auth_handler = crud.get_auth_setting_by_name(name="auth_handler_selected")
 
         # if no auth_handler is saved, use default one and save to db
         if selected_auth_handler is None:
             # create the auth settings
-            crud.upsert_setting_by_name(
+            crud.upsert_auth_setting_by_name(
                 models.Setting(
                     name="CoreOnlyAuthConfig", category="auth_handler_factory", value={}
                 )
             )
-            crud.upsert_setting_by_name(
+            crud.upsert_auth_setting_by_name(
                 models.Setting(
                     name="auth_handler_selected",
                     category="auth_handler_factory",
@@ -83,7 +80,7 @@ class CheshireCat:
             )
 
             # reload from db
-            selected_auth_handler = crud.get_setting_by_name(
+            selected_auth_handler = crud.get_auth_setting_by_name(
                 name="auth_handler_selected"
             )
 
@@ -92,7 +89,7 @@ class CheshireCat:
         FactoryClass = get_auth_handler_from_name(selected_auth_handler_class)
 
         # obtain configuration and instantiate AuthHandler
-        selected_auth_handler_config = crud.get_setting_by_name(
+        selected_auth_handler_config = crud.get_auth_setting_by_name(
             name=selected_auth_handler_class
         )
         try:

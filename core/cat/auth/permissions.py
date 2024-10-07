@@ -50,12 +50,10 @@ def get_base_permissions() -> Dict[str, list[str]]:
 class AuthUserInfo(BaseModelDict):
     """
     Class to represent token content after the token has been decoded.
-    Will be creted by AuthHandler(s) to standardize their output.
+    Will be created by AuthHandler(s) to standardize their output.
     Core will use this object to retrieve or create a StrayCat (session)
     """
 
-    # TODOAUTH: id & username can be confused when is time to retrieve or create a StrayCat
-    # (id should be used)
     id: str
     name: str
 

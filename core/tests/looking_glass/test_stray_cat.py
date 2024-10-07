@@ -4,6 +4,7 @@ from langchain_community.llms import BaseLLM
 from langchain_core.embeddings import Embeddings
 
 from cat.agents.main_agent import MainAgent
+from cat.auth.permissions import AuthUserInfo
 from cat.looking_glass.stray_cat import StrayCat
 from cat.memory.long_term_memory import LongTermMemory
 from cat.memory.working_memory import WorkingMemory
@@ -14,7 +15,7 @@ from cat.factory.custom_llm import LLMDefault
 
 @pytest.fixture
 def stray(client) -> StrayCat:
-    yield StrayCat(user_id="Alice", main_loop=asyncio.new_event_loop())
+    yield StrayCat(user_data=AuthUserInfo(id="user_alice", name="Alice"), main_loop=asyncio.new_event_loop())
 
 
 def test_stray_initialization(stray):

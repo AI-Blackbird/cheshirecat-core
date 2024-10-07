@@ -24,7 +24,6 @@ class ConnectionAuth(ABC):
         self,
         connection: HTTPConnection # Request | WebSocket,
     ) -> StrayCat:
-
         # extract credentials (user_id, token_or_key) from connection
         user_id, credential = await self.extract_credentials(connection)
         auth_handlers = [
@@ -85,16 +84,12 @@ class HTTPAuth(ConnectionAuth):
 
         return user_id, token
 
-
     async def get_user_stray(self, user: AuthUserInfo, connection: Request) -> StrayCat:
         strays = connection.app.state.strays
         event_loop = connection.app.state.event_loop
 
         if user.id not in strays.keys():
-            strays[user.id] = StrayCat(
-                # TODO V2: user_id should be the user.id
-                user_id=user.name, user_data=user, main_loop=event_loop
-            )
+            strays[user.id] = StrayCat(user_data=user, main_loop=event_loop)
         return strays[user.id]
     
     def not_allowed(self, connection: Request):
@@ -114,33 +109,26 @@ class WebSocketAuth(ConnectionAuth):
         token = connection.query_params.get("token", None)
         
         return user_id, token
-    
 
     async def get_user_stray(self, user: AuthUserInfo, connection: WebSocket) -> StrayCat:
         strays = connection.app.state.strays
 
-        if user.id in strays.keys():
-            stray = strays[user.id]
-            # Close previous ws connection
-            if stray.ws:
-                await stray.ws.close()
-            # Set new ws connection
-            stray.ws = connection
+        if user.id not in strays.keys():
+            strays[user.id] = StrayCat(user_data=user, main_loop=asyncio.get_running_loop())
+
+        stray = strays[user.id]
+        # Close previous ws connection
+        if stray.ws:
+            await stray.ws.close()
             log.info(
                 f"New websocket connection for user '{user.id}', the old one has been closed."
             )
-            return stray
 
-        else:
-            stray = StrayCat(
-                ws=connection,
-                user_id=user.name, # TODO V2: user_id should be the user.id
-                user_data=user,
-                main_loop=asyncio.get_running_loop(),
-            )
-            strays[user.id] = stray
-            return stray
-        
+        # Set new ws connection
+        stray.ws = connection
+
+        return stray
+
     def not_allowed(self, connection: WebSocket):
         raise WebSocketException(code=1004, reason="Invalid Credentials")
 
