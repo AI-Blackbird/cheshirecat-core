@@ -35,7 +35,7 @@ def get_full_permissions() -> Dict[AuthResource, List[AuthPermission]]:
     return perms
 
 
-def get_base_permissions() -> Dict[AuthResource, List[AuthPermission]]:
+def get_base_permissions() -> Dict[str, list[str]]:
     """
     Returns the default permissions for new users (chat only!).
     """

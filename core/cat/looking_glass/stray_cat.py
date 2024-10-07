@@ -16,6 +16,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from fastapi import WebSocket
 
+from cat.auth.permissions import AuthUserInfo
+from cat.env import get_env
 from cat.log import log
 from cat.looking_glass.cheshire_cat import CheshireCat
 from cat.looking_glass.callbacks import NewTokenHandler, ModelInteractionHandler
@@ -46,7 +48,7 @@ class StrayCat:
         self,
         user_id: str,
         main_loop,
-        user_data: dict = {},
+        user_data: AuthUserInfo = None,
         ws: WebSocket = None,
     ):
         self.__user_id = user_id
@@ -65,21 +67,22 @@ class StrayCat:
         self.embed_procedures()  # first time launched manually
 
         # attribute to store ws connection
-        self.__ws = ws
+        self.ws = ws
 
         self.__main_loop = main_loop
 
         self.__loop = asyncio.new_event_loop()
+        self.__last_message_time = None
 
     def __repr__(self):
         return f"StrayCat(user_id={self.user_id})"
 
     def __send_ws_json(self, data: Any):
-        # Run the corutine in the main event loop in the main thread
+        self.__last_message_time = time.time()
+
+        # Run the coroutine in the main event loop in the main thread
         # and wait for the result
-        asyncio.run_coroutine_threadsafe(
-            self.__ws.send_json(data), loop=self.__main_loop
-        ).result()
+        asyncio.run_coroutine_threadsafe(self.ws.send_json(data), loop=self.__main_loop).result()
 
     def __build_why(self) -> MessageWhy:
         # build data structure for output (response and why with memories)
@@ -156,11 +159,6 @@ class StrayCat:
 
         Bootstrapping is the process of loading the plugins, the natural language objects (e.g. the LLM), the memories,
         the *Main Agent*, the *Rabbit Hole* and the *White Rabbit*.
-
-        Parameters
-        ----------
-        cat: CheshireCat
-            Cheshire Cat instance.
 
         Returns
         -------
@@ -285,18 +283,16 @@ class StrayCat:
 
         active_triggers_to_be_embedded = [active_procedures_hashes[p] for p in points_to_be_embedded]
         for t in active_triggers_to_be_embedded:
-            metadata = {
-                "source": t["source"],
-                "type": t["type"],
-                "trigger_type": t["trigger_type"],
-                "when": time.time(),
-            }
-
             trigger_embedding = self.embedder.embed_documents([t["content"]])
             self.memory.vectors.procedural.add_point(
                 t["content"],
                 trigger_embedding[0],
-                metadata,
+                {
+                    "source": t["source"],
+                    "type": t["type"],
+                    "trigger_type": t["trigger_type"],
+                    "when": time.time(),
+                },
             )
 
             log.warning(
@@ -316,7 +312,7 @@ class StrayCat:
             The type of the message. Should be either `notification`, `chat`, `chat_token` or `error`
         """
 
-        if self.__ws is None:
+        if self.ws is None:
             log.warning(f"No websocket connection is open for user {self.user_id}")
             return
 
@@ -335,7 +331,7 @@ class StrayCat:
             self.__send_ws_json({"type": msg_type, "content": content})
 
     def send_chat_message(self, message: Union[str, CatMessage], save=False):
-        if self.__ws is None:
+        if self.ws is None:
             log.warning(f"No websocket connection is open for user {self.user_id}")
             return
 
@@ -354,7 +350,7 @@ class StrayCat:
         self.send_ws_message(content=content, msg_type="notification")
 
     def send_error(self, error: Union[str, Exception]):
-        if self.__ws is None:
+        if self.ws is None:
             log.warning(f"No websocket connection is open for user {self.user_id}")
             return
 
@@ -545,8 +541,6 @@ class StrayCat:
         ----------
         message_dict : dict
             Dictionary received from the Websocket client.
-        save : bool, optional
-            If True, the user's message is stored in the chat history. Default is True.
 
         Returns
         -------
@@ -590,7 +584,7 @@ class StrayCat:
             self.recall_relevant_memories_to_working_memory()
         except Exception as e:
             log.error(e)
-            traceback.print_exc(e)
+            traceback.print_exc()
 
             err_message = (
                 "You probably changed Embedder and old vector memory is not compatible. "
@@ -679,9 +673,7 @@ class StrayCat:
             # Send error as websocket message
             self.send_error(e)
 
-    def classify(
-        self, sentence: str, labels: List[str] | Dict[str, List[str]]
-    ) -> str | None:
+    def classify(self, sentence: str, labels: List[str] | Dict[str, List[str]]) -> str | None:
         """Classify a sentence.
 
         Parameters
@@ -815,3 +807,7 @@ Allowed classes are:
     @property
     def loop(self):
         return self.__loop
+
+    @property
+    def is_idle(self):
+        return time.time() - self.__last_message_time >= get_env("CCAT_STRAYCAT_TIMEOUT")
