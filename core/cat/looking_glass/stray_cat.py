@@ -59,6 +59,9 @@ class StrayCat:
         # Load memories (vector collections and working_memory)
         self.memory = self.load_memory()
 
+        # After memory is loaded, we can get/create tools embeddings
+        # every time the mad_hatter finishes syncing hooks, tools and forms, it will notify the Cat (so it can embed tools in vector memory)
+        self.mad_hatter.on_finish_plugins_sync_callback = self.embed_procedures
         self.embed_procedures()  # first time launched manually
 
         # attribute to store ws connection
