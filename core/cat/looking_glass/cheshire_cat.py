@@ -5,7 +5,6 @@ from cat.factory.auth_handler import get_auth_handler_from_name
 from cat.factory.custom_auth_handler import CoreAuthHandler
 import cat.factory.auth_handler as auth_handlers
 from cat.db import crud, models
-from cat.agents.main_agent import MainAgent
 from cat.looking_glass.white_rabbit import WhiteRabbit
 from cat.log import log
 from cat.mad_hatter.mad_hatter import MadHatter
@@ -56,9 +55,6 @@ class CheshireCat:
 
         # allows plugins to do something before cat components are loaded
         self.mad_hatter.execute_hook("before_cat_bootstrap", cat=self)
-
-        # Main agent instance (for reasoning)
-        self.main_agent = MainAgent()
 
         # Rabbit Hole Instance
         self.rabbit_hole = RabbitHole(self)  # :(

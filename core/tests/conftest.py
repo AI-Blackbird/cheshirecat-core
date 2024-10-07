@@ -130,11 +130,6 @@ def just_installed_plugin(client):
 
     # clean up of zip file and mock_plugin_folder is done for every test automatically (see client fixture)
 
-# fixtures to test the main agent
-@pytest.fixture
-def main_agent(client):
-    yield CheshireCat().main_agent  # each test receives as argument the main agent instance
-
 # fixture to have available an instance of StrayCat
 @pytest.fixture
 def stray(client):

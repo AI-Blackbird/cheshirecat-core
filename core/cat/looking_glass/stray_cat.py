@@ -16,6 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from fastapi import WebSocket
 
+from cat.agents.main_agent import MainAgent
 from cat.auth.permissions import AuthUserInfo
 from cat.env import get_env
 from cat.log import log
@@ -55,7 +56,7 @@ class StrayCat:
         self.working_memory = WorkingMemory()
 
         # Load language model and embedder
-        self._llm = self.load_language_model()
+        self.llm = self.load_language_model()
         self.embedder = self.load_language_embedder()
 
         # Load memories (vector collections and working_memory)
@@ -65,6 +66,9 @@ class StrayCat:
         # every time the mad_hatter finishes syncing hooks, tools and forms, it will notify the Cat (so it can embed tools in vector memory)
         self.mad_hatter.on_finish_plugins_sync_callback = self.embed_procedures
         self.embed_procedures()  # first time launched manually
+
+        # Main agent instance (for reasoning)
+        self.main_agent = MainAgent()
 
         # attribute to store ws connection
         self.ws = ws
@@ -185,13 +189,13 @@ class StrayCat:
                 embedder = EmbedderDumbConfig.get_embedder_from_config({})
             return embedder
 
-        llm_type = type(self._llm)
+        llm_type = type(self.llm)
 
         # OpenAI embedder
         if llm_type in [OpenAI, ChatOpenAI]:
             return EmbedderOpenAIConfig.get_embedder_from_config(
                 {
-                    "openai_api_key": self._llm.openai_api_key,
+                    "openai_api_key": self.llm.openai_api_key,
                 }
             )
 
@@ -201,7 +205,7 @@ class StrayCat:
         if llm_type in [Cohere]:
             return EmbedderCohereConfig.get_embedder_from_config(
                 {
-                    "cohere_api_key": self._llm.cohere_api_key,
+                    "cohere_api_key": self.llm.cohere_api_key,
                     "model": "embed-multilingual-v2.0",
                     # Now the best model for embeddings is embed-multilingual-v2.0
                 }
@@ -211,7 +215,7 @@ class StrayCat:
             return EmbedderGeminiChatConfig.get_embedder_from_config(
                 {
                     "model": "models/embedding-001",
-                    "google_api_key": self._llm.google_api_key,
+                    "google_api_key": self.llm.google_api_key,
                 }
             )
 
@@ -795,10 +799,6 @@ Allowed classes are:
     @property
     def mad_hatter(self):
         return CheshireCat().mad_hatter
-
-    @property
-    def main_agent(self):
-        return CheshireCat().main_agent
 
     @property
     def white_rabbit(self):

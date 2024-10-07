@@ -3,7 +3,6 @@ import pytest
 from cat.looking_glass.cheshire_cat import CheshireCat
 from cat.mad_hatter.mad_hatter import MadHatter
 from cat.rabbit_hole import RabbitHole
-from cat.agents.main_agent import MainAgent
 
 
 def get_class_from_decorated_singleton(singleton):
@@ -23,5 +22,3 @@ def test_main_modules_loaded(cheshire_cat):
     assert isinstance(
         cheshire_cat.rabbit_hole, get_class_from_decorated_singleton(RabbitHole)
     )
-
-    assert isinstance(cheshire_cat.main_agent, MainAgent)

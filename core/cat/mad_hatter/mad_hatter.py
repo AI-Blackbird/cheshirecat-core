@@ -29,7 +29,7 @@ from cat.experimental.form import CatForm
 @singleton
 class MadHatter:
     # loads and execute plugins
-    # - enter into the plugin folder and loads everthing
+    # - enter into the plugin folder and loads everything
     #   that is decorated or named properly
     # - orders plugged in hooks by name and priority
     # - exposes functionality to the cat

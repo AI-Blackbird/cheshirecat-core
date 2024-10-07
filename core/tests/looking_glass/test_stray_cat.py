@@ -3,6 +3,7 @@ import asyncio
 from langchain_community.llms import BaseLLM
 from langchain_core.embeddings import Embeddings
 
+from cat.agents.main_agent import MainAgent
 from cat.looking_glass.stray_cat import StrayCat
 from cat.memory.long_term_memory import LongTermMemory
 from cat.memory.working_memory import WorkingMemory
@@ -20,16 +21,17 @@ def test_stray_initialization(stray):
     assert isinstance(stray, StrayCat)
     assert stray.user_id == "Alice"
 
-    # TODO: this should be singleton too
     assert isinstance(stray.memory, LongTermMemory)
 
     assert isinstance(stray.working_memory, WorkingMemory)
-    assert isinstance(stray._llm, BaseLLM)
+    assert isinstance(stray.llm, BaseLLM)
     assert isinstance(stray.embedder, Embeddings)
+
+    assert isinstance(stray.main_agent, MainAgent)
 
 
 def test_default_llm_loaded(stray):
-    assert isinstance(stray._llm, LLMDefault)
+    assert isinstance(stray.llm, LLMDefault)
 
     out = stray.llm("Hey")
     assert "You did not configure a Language Model" in out
