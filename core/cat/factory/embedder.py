@@ -1,14 +1,14 @@
-from enum import Enum
-from typing import Type
-
+from typing import Type, List, Dict
 from pydantic import BaseModel, ConfigDict, Field
+from langchain_cohere import CohereEmbeddings
 from langchain_community.embeddings import FakeEmbeddings, FastEmbedEmbeddings
 from langchain_openai import OpenAIEmbeddings, AzureOpenAIEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from fastembed import TextEmbedding
+
 from cat.factory.custom_embedder import DumbEmbedder, CustomOpenAIEmbeddings
 from cat.mad_hatter.mad_hatter import MadHatter
-from langchain_cohere import CohereEmbeddings
+from cat.utils import Enum
 
 
 # Base class to manage LLM configuration.
@@ -28,6 +28,10 @@ class EmbedderSettings(BaseModel):
                 "Embedder configuration class has self._pyclass==None. Should be a valid Embedder class"
             )
         return cls._pyclass.default(**config)
+
+    @property
+    def pyclass(self) -> Type:
+        return self._pyclass
 
 
 class EmbedderFakeConfig(EmbedderSettings):
@@ -166,7 +170,7 @@ class EmbedderGeminiChatConfig(EmbedderSettings):
     )
 
 
-def get_allowed_embedder_models():
+def get_allowed_embedder_models(mad_hatter: MadHatter) -> List[Type[EmbedderSettings]]:
     list_embedder_default = [
         EmbedderQdrantFastEmbedConfig,
         EmbedderOpenAIConfig,
@@ -178,28 +182,27 @@ def get_allowed_embedder_models():
         EmbedderFakeConfig,
     ]
 
-    mad_hatter_instance = MadHatter()
-    list_embedder = mad_hatter_instance.execute_hook(
+    list_embedder = mad_hatter.execute_hook(
         "factory_allowed_embedders", list_embedder_default, cat=None
     )
     return list_embedder
 
 
-def get_embedder_from_name(name_embedder: str):
+def get_embedder_from_name(name: str, mad_hatter: MadHatter) -> Type[EmbedderSettings] | None:
     """Find the llm adapter class by name"""
-    for cls in get_allowed_embedder_models():
-        if cls.__name__ == name_embedder:
+    for cls in get_allowed_embedder_models(mad_hatter):
+        if cls.__name__ == name:
             return cls
     return None
 
 
-def get_embedders_schemas():
-    # EMBEDDER_SCHEMAS contains metadata to let any client know which fields are required to create the language embedder.
-    EMBEDDER_SCHEMAS = {}
-    for config_class in get_allowed_embedder_models():
+def get_embedders_schemas(mad_hatter: MadHatter) -> Dict:
+    # embedder_schemas contains metadata to let any client know which fields are required to create the language embedder.
+    embedder_schemas = {}
+    for config_class in get_allowed_embedder_models(mad_hatter):
         schema = config_class.model_json_schema()
         # useful for clients in order to call the correct config endpoints
         schema["languageEmbedderName"] = schema["title"]
-        EMBEDDER_SCHEMAS[schema["title"]] = schema
+        embedder_schemas[schema["title"]] = schema
 
-    return EMBEDDER_SCHEMAS
+    return embedder_schemas

@@ -4,7 +4,7 @@ Here is a collection of methods to hook into the *Agent* execution pipeline.
 
 """
 
-from typing import List, Union, Dict
+from typing import List, Dict
 
 from cat.mad_hatter.decorators import hook
 
@@ -15,7 +15,7 @@ def before_agent_starts(agent_input: Dict, cat) -> Dict:
 
     Parameters
     --------
-    agent_input: dict
+    agent_input: Dict
         Input that is about to be passed to the agent.
     cat : CheshireCat
         Cheshire Cat instance.
@@ -30,20 +30,20 @@ def before_agent_starts(agent_input: Dict, cat) -> Dict:
 
 
 @hook(priority=0)
-def agent_fast_reply(fast_reply, cat) -> Union[None, Dict]:
+def agent_fast_reply(fast_reply: Dict, cat) -> Dict | None:
     """This hook is useful to shortcut the Cat response.
     If you do not want the agent to run, return the final response from here and it will end up in the chat without the agent being executed.
 
     Parameters
     --------
-    fast_reply: dict
-        Input is dict (initially empty), which can be enriched whith an "output" key with the shortcut response.
+    fast_reply: Dict
+        Input is a dictionary (initially empty), which can be enriched with an "output" key with the shortcut response.
     cat : CheshireCat
         Cheshire Cat instance.
 
     Returns
     --------
-    response : Union[None, Dict]
+    response : Dict | None
         Cat response if you want to avoid using the agent, or None / {} if you want the agent to be executed.
         See below for examples of Cat response
 
@@ -52,7 +52,7 @@ def agent_fast_reply(fast_reply, cat) -> Union[None, Dict]:
 
     Example 1: can't talk about this topic
     ```python
-    # here you could use cat._llm to do topic evaluation
+    # here you could use cat.llm to do topic evaluation
     if "dog" in agent_input["input"]:
         return {
             "output": "You went out of topic. Can't talk about dog."
@@ -79,10 +79,12 @@ def agent_allowed_tools(allowed_tools: List[str], cat) -> List[str]:
     Allows to decide which tools end up in the *Agent* prompt.
 
     To decide, you can filter the list of tools' names, but you can also check the context in `cat.working_memory`
-    and launch custom chains with `cat._llm`.
+    and launch custom chains with `cat.llm`.
 
     Parameters
     ---------
+    allowed_tools : List[str]
+        List of tools that are allowed to be used by the *
     cat : CheshireCat
         Cheshire Cat instance.
 

@@ -1,7 +1,7 @@
 [project]
 name = "Cheshire-Cat"
 description = "Production ready AI assistant framework"
-version = "1.7.1"
+version = "1.8.0"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
@@ -21,7 +21,7 @@ dependencies = [
     "Jinja2==3.1.4",
     "pandas==1.5.3",
     "scikit-learn==1.2.1",
-    "qdrant_client==1.8.0",
+    "qdrant_client==1.11.0",
     "langchain==0.2.1",
     "langchain-community==0.2.1",
     "langchain-openai==0.1.7",
@@ -36,7 +36,6 @@ dependencies = [
     "loguru==0.7.2",
     "anthropic==0.2.9",
     "text_generation==0.6.1",
-    "tinydb==4.8.0",
     "python-slugify==8.0.1",
     "autopep8",
     "pylint",
@@ -45,10 +44,11 @@ dependencies = [
     "pytest",
     "pytest-asyncio",
     "httpx",
-    "fastembed==0.3.4",
+    "fastembed==0.3.6",
     "rapidfuzz==3.6.1",
     "APScheduler==3.10.4",
     "ruff==0.4.7",
+    "redis==5.1.1",
 ]
 
 [tool.coverage.run]

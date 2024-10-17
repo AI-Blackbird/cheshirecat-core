@@ -14,6 +14,8 @@ def factory_allowed_llms(allowed: List[LLMSettings], cat) -> List:
     ---------
     allowed : List of LLMSettings classes
         list of allowed language models
+    cat : Cat
+        Cat instance
 
     Returns
     -------
@@ -31,6 +33,8 @@ def factory_allowed_embedders(allowed: List[EmbedderSettings], cat) -> List:
     ---------
     allowed : embedder of EmbedderSettings classes
         list of allowed embedders
+    cat : Cat
+        Cat instance
 
     Returns
     -------
@@ -48,6 +52,8 @@ def factory_allowed_auth_handlers(allowed: List[AuthHandlerConfig], cat) -> List
     ---------
     allowed : List of AuthHandlerConfig classes
         list of allowed auth_handlers
+    cat : Cat
+        Cat instance
 
     Returns
     -------

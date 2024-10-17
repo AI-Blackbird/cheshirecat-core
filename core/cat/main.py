@@ -1,17 +1,19 @@
-import uvicorn
 import asyncio
+import uvicorn
 from contextlib import asynccontextmanager
 from scalar_fastapi import get_scalar_api_reference
-
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from cat.log import log
+from cat.bill_the_lizard import BillTheLizard
+from cat.db.database import get_db
 from cat.env import get_env, fix_legacy_env_variables
+from cat.log import log
 from cat.routes import (
+    admins_router as admins,
     base,
     auth,
     users,
@@ -19,14 +21,13 @@ from cat.routes import (
     llm,
     embedder,
     auth_handler,
-    memory,
+    memory_router as memory,
     plugins,
     upload,
     websocket,
+    static,
 )
-from cat.routes.static import admin, static
 from cat.routes.openapi import get_openapi_configuration_function
-from cat.looking_glass.cheshire_cat import CheshireCat
 
 
 # TODO: take away in v2
@@ -37,15 +38,14 @@ fix_legacy_env_variables()
 async def lifespan(app: FastAPI):
     #       ^._.^
     #
-    # loads Cat and plugins
-    # Every endpoint can access the cat instance via request.app.state.ccat
-    # - Not using midlleware because I can't make it work with both http and websocket;
-    # - Not using Depends because it only supports callables (not instances)
+    # loads Manager and plugins
+    # Every endpoint can access the manager instance via request.app.state.lizard
+    # - Not using middleware because I can't make it work with both http and websocket;
+    # - Not using "Depends" because it only supports callables (not instances)
     # - Starlette allows this: https://www.starlette.io/applications/#storing-state-on-the-app-instance
-    app.state.ccat = CheshireCat()
 
-    # Dict of pseudo-sessions (key is the user_id)
-    app.state.strays = {}
+    # load the Manager
+    app.state.lizard = BillTheLizard()
 
     # set a reference to asyncio event loop
     app.state.event_loop = asyncio.get_running_loop()
@@ -54,6 +54,11 @@ async def lifespan(app: FastAPI):
     log.welcome()
 
     yield
+
+    # shutdown Manager
+    await app.state.lizard.shutdown()
+
+    get_db().close()
 
 
 def custom_generate_unique_id(route: APIRoute):
@@ -79,30 +84,23 @@ cheshire_cat_api.add_middleware(
 )
 
 # Add routers to the middleware stack.
-cheshire_cat_api.include_router(base.router, tags=["Status"])
+cheshire_cat_api.include_router(base.router, tags=["Home"])
+cheshire_cat_api.include_router(admins.router, prefix="/admins")
 cheshire_cat_api.include_router(auth.router, tags=["User Auth"], prefix="/auth")
 cheshire_cat_api.include_router(users.router, tags=["Users"], prefix="/users")
 cheshire_cat_api.include_router(settings.router, tags=["Settings"], prefix="/settings")
-cheshire_cat_api.include_router(
-    llm.router, tags=["Large Language Model"], prefix="/llm"
-)
+cheshire_cat_api.include_router(llm.router, tags=["Large Language Model"], prefix="/llm")
 cheshire_cat_api.include_router(embedder.router, tags=["Embedder"], prefix="/embedder")
 cheshire_cat_api.include_router(plugins.router, tags=["Plugins"], prefix="/plugins")
-cheshire_cat_api.include_router(memory.router, tags=["Memory"], prefix="/memory")
-cheshire_cat_api.include_router(
-    upload.router, tags=["Rabbit Hole"], prefix="/rabbithole"
-)
-cheshire_cat_api.include_router(
-    auth_handler.router, tags=["AuthHandler"], prefix="/auth_handler"
-)
+cheshire_cat_api.include_router(memory.router, prefix="/memory")
+cheshire_cat_api.include_router(upload.router, tags=["Rabbit Hole"], prefix="/rabbithole")
+cheshire_cat_api.include_router(auth_handler.router, tags=["AuthHandler"], prefix="/auth_handler")
 cheshire_cat_api.include_router(websocket.router, tags=["Websocket"])
 
 # mount static files
-# this cannot be done via fastapi.APIrouter:
+# this cannot be done via fastapi.APIRouter:
 # https://github.com/tiangolo/fastapi/discussions/9070
 
-# admin single page app (static build)
-admin.mount(cheshire_cat_api)
 # static files (for plugins and other purposes)
 static.mount(cheshire_cat_api)
 

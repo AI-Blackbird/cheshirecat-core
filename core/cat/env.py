@@ -6,21 +6,26 @@ def get_supported_env_variables():
         "CCAT_CORE_HOST": "localhost",
         "CCAT_CORE_PORT": "1865",
         "CCAT_CORE_USE_SECURE_PROTOCOLS": "",
+        "CCAT_ADMIN_DEFAULT_PASSWORD": "AIBlackBirdWithCheshireCat",
         "CCAT_API_KEY": None,
         "CCAT_API_KEY_WS": None,
         "CCAT_DEBUG": "true",
         "CCAT_LOG_LEVEL": "INFO",
         "CCAT_CORS_ALLOWED_ORIGINS": None,
-        "CCAT_QDRANT_HOST": None,
+        "CCAT_QDRANT_HOST": "",
         "CCAT_QDRANT_PORT": "6333",
-        "CCAT_QDRANT_API_KEY": None,
+        "CCAT_QDRANT_API_KEY": "",
         "CCAT_SAVE_MEMORY_SNAPSHOTS": "false",
-        "CCAT_METADATA_FILE": "cat/data/metadata.json",
+        "CCAT_REDIS_HOST": "localhost",
+        "CCAT_REDIS_PORT": "6379",
+        "CCAT_REDIS_PASSWORD": "",
+        "CCAT_REDIS_DB": "0",
         "CCAT_JWT_SECRET": "secret",
         "CCAT_JWT_ALGORITHM": "HS256",
         "CCAT_JWT_EXPIRE_MINUTES": str(60 * 24),  # JWT expires after 1 day
         "CCAT_HTTPS_PROXY_MODE": False,
         "CCAT_CORS_FORWARDED_ALLOW_IPS": "*",
+        "CCAT_STRAYCAT_TIMEOUT": str(59),  # in seconds
     }
 
 
