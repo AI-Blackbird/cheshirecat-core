@@ -1,3 +1,4 @@
+from langchain_core.language_models import BaseLanguageModel
 from langchain_openai import AzureChatOpenAI
 from langchain_openai import AzureOpenAI
 from langchain_community.llms import (
@@ -7,8 +8,7 @@ from langchain_community.llms import (
 from langchain_openai import ChatOpenAI, OpenAI
 from langchain_cohere import ChatCohere
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-from typing import Type
+from typing import Type, Dict, List
 import json
 from pydantic import BaseModel, ConfigDict
 
@@ -19,7 +19,7 @@ from cat.mad_hatter.mad_hatter import MadHatter
 # Base class to manage LLM configuration.
 class LLMSettings(BaseModel):
     # class instantiating the model
-    _pyclass: Type = None
+    _pyclass: Type[BaseLanguageModel] = None
 
     # This is related to pydantic, because "model_*" attributes are protected.
     # We deactivate the protection because langchain relies on several "model_*" named attributes
@@ -27,12 +27,14 @@ class LLMSettings(BaseModel):
 
     # instantiate an LLM from configuration
     @classmethod
-    def get_llm_from_config(cls, config):
-        if cls._pyclass is None:
-            raise Exception(
-                "Language model configuration class has self._pyclass==None. Should be a valid LLM class"
-            )
-        return cls._pyclass.default(**config)
+    def get_llm_from_config(cls, config) -> BaseLanguageModel:
+        if cls._pyclass:
+            return cls._pyclass.default(**config)
+        raise Exception("Language model configuration class is invalid. It should be a valid BaseLanguageModel class")
+
+    @classmethod
+    def pyclass(cls) -> Type[BaseLanguageModel]:
+        return cls._pyclass.default
 
 
 class LLMDefaultConfig(LLMSettings):
@@ -282,7 +284,7 @@ class LLMGeminiChatConfig(LLMSettings):
     )
 
 
-def get_allowed_language_models():
+def get_allowed_language_models(mad_hatter: MadHatter) -> List[Type[LLMSettings]]:
     list_llms_default = [
         LLMOpenAIChatConfig,
         LLMOpenAIConfig,
@@ -298,29 +300,36 @@ def get_allowed_language_models():
         LLMDefaultConfig,
     ]
 
-    mad_hatter_instance = MadHatter()
-    list_llms = mad_hatter_instance.execute_hook(
+    list_llms = mad_hatter.execute_hook(
         "factory_allowed_llms", list_llms_default, cat=None
     )
     return list_llms
 
 
-def get_llm_from_name(name_llm: str):
+def get_llm_factory_from_config_name(name: str, mad_hatter: MadHatter) -> Type[LLMSettings] | None:
     """Find the llm adapter class by name"""
-    for cls in get_allowed_language_models():
-        if cls.__name__ == name_llm:
+    for cls in get_allowed_language_models(mad_hatter):
+        if cls.__name__ == name:
             return cls
     return None
 
 
-def get_llms_schemas():
-    # LLM_SCHEMAS contains metadata to let any client know
+def get_llms_schemas(mad_hatter: MadHatter) -> Dict:
+    # llm_schemas contains metadata to let any client know
     # which fields are required to create the language model.
-    LLM_SCHEMAS = {}
-    for config_class in get_allowed_language_models():
+    llm_schemas = {}
+    for config_class in get_allowed_language_models(mad_hatter):
         schema = config_class.model_json_schema()
         # useful for clients in order to call the correct config endpoints
         schema["languageModelName"] = schema["title"]
-        LLM_SCHEMAS[schema["title"]] = schema
+        llm_schemas[schema["title"]] = schema
 
-    return LLM_SCHEMAS
+    return llm_schemas
+
+
+def get_llm_config_class_from_model(cls: Type[BaseLanguageModel], mad_hatter: MadHatter) -> str | None:
+    """Find the class name of the llm adapter"""
+    for config_class in get_allowed_language_models(mad_hatter):
+        if config_class.pyclass() == cls:
+            return config_class.__name__
+    return None
