@@ -2,7 +2,6 @@ import time
 import asyncio
 import traceback
 from asyncio import AbstractEventLoop
-
 import tiktoken
 from typing import Literal, List, Dict, Any, get_args
 from langchain.docstore.document import Document
@@ -17,7 +16,6 @@ from cat.agents.base_agent import AgentOutput
 from cat.agents.main_agent import MainAgent
 from cat.auth.permissions import AuthUserInfo
 from cat.convo.messages import EmbedderModelInteraction, CatMessage, Role, MessageWhy, UserMessage
-from cat.env import get_env
 from cat.exceptions import VectorMemoryError
 from cat.log import log
 from cat.looking_glass.bill_the_lizard import BillTheLizard
@@ -25,7 +23,8 @@ from cat.looking_glass.callbacks import NewTokenHandler, ModelInteractionHandler
 from cat.looking_glass.white_rabbit import WhiteRabbit
 from cat.mad_hatter.tweedledee import Tweedledee
 from cat.memory.long_term_memory import LongTermMemory
-from cat.memory.vector_memory_collection import VectorMemoryCollectionTypes, DocumentRecall, VectorMemoryCollection
+from cat.memory.utils import DocumentRecall, VectorMemoryCollectionTypes
+from cat.memory.vector_memory_collection import VectorMemoryCollection
 from cat.memory.working_memory import WorkingMemory
 from cat.rabbit_hole import RabbitHole
 
@@ -56,9 +55,6 @@ class StrayCat:
 
         self.__main_loop = main_loop
 
-        self.__loop = asyncio.new_event_loop()
-        self.__last_message_time = time.time()
-
     def __eq__(self, other: "StrayCat") -> bool:
         """Check if two cats are equal."""
         if not isinstance(other, StrayCat):
@@ -70,6 +66,9 @@ class StrayCat:
 
     def __repr__(self):
         return f"StrayCat(user_id={self.__user.id}, agent_id={self.__agent_id})"
+
+    def __del__(self):
+        asyncio.run(self.__close_connection())
 
     def _send_ws_json(self, data: Any):
         # Run the coroutine in the main event loop in the main thread
@@ -119,8 +118,8 @@ class StrayCat:
             self._send_ws_json(
                 {"type": msg_type, "name": "GenericError", "description": str(content)}
             )
-        else:
-            self._send_ws_json({"type": msg_type, "content": content})
+            return
+        self._send_ws_json({"type": msg_type, "content": content})
 
     def send_chat_message(self, message: str | CatMessage, save=False):
         """
@@ -339,7 +338,7 @@ class StrayCat:
 
         return self.cheshire_cat.llm(prompt, caller=caller, config=RunnableConfig(callbacks=callbacks))
 
-    async def __call__(self, user_message: UserMessage) -> CatMessage:
+    def __call__(self, user_message: UserMessage) -> CatMessage:
         """
         Call the Cat instance.
         This method is called on the user's message received from the client.
@@ -392,7 +391,7 @@ class StrayCat:
 
             raise VectorMemoryError("An error occurred while recalling relevant memories.")
 
-        agent_output = await self._build_agent_output()
+        agent_output = self._build_agent_output()
         log.info(f"Agent id: {self.__agent_id}. Agent output returned to stray:")
         log.info(agent_output)
 
@@ -400,7 +399,7 @@ class StrayCat:
 
     def run_http(self, user_message: UserMessage) -> CatMessage:
         try:
-            return self.loop.run_until_complete(self.__call__(user_message))
+            return self.__call__(user_message)
         except Exception as e:
             # Log any unexpected errors
             log.error(f"Agent id: {self.__agent_id}. Error {e}")
@@ -409,7 +408,7 @@ class StrayCat:
 
     def run_websocket(self, user_message: UserMessage) -> None:
         try:
-            cat_message = self.loop.run_until_complete(self.__call__(user_message))
+            cat_message = self.__call__(user_message)
             # send message back to client via WS
             self.send_chat_message(cat_message)
         except Exception as e:
@@ -484,7 +483,7 @@ Allowed classes are:
         # set 0.5 as threshold - let's see if it works properly
         return best_label if score < 0.5 else None
 
-    async def close_connection(self):
+    async def __close_connection(self):
         if not self.__ws:
             return
         try:
@@ -496,14 +495,10 @@ Allowed classes are:
     def nullify_connection(self):
         self.__ws = None
 
-    def reset_connection(self, connection):
-        """Reset the connection to the API service."""
-        self.__ws = connection
-
-    async def _build_agent_output(self) -> AgentOutput:
+    def _build_agent_output(self) -> AgentOutput:
         # reply with agent
         try:
-            agent_output: AgentOutput = await self.main_agent.execute(self)
+            agent_output: AgentOutput = self.main_agent.execute(self)
             if agent_output.output == utils.default_llm_answer_prompt():
                 agent_output.with_llm_error = True
         except Exception as e:
@@ -541,8 +536,6 @@ Allowed classes are:
         else:
             self.working_memory.update_history(who=Role.AI, content=final_output)
 
-        self.__last_message_time = time.time()
-
         return final_output
 
     def _store_user_message_in_episodic_memory(self, user_message: UserMessage):
@@ -562,11 +555,6 @@ Allowed classes are:
             user_message_embedding[0],
             doc.metadata,
         )
-
-    async def shutdown(self):
-        await self.close_connection()
-        self.__loop.stop()
-        self.__loop.close()
 
     @property
     def user(self) -> AuthUserInfo:
@@ -614,7 +602,7 @@ Allowed classes are:
 
     @property
     def mad_hatter(self) -> Tweedledee:
-        return self.cheshire_cat.plugin_manager
+        return self.plugin_manager
 
     @property
     def main_agent(self) -> MainAgent:
@@ -622,15 +610,7 @@ Allowed classes are:
 
     @property
     def white_rabbit(self) -> WhiteRabbit:
-        return self.lizard.white_rabbit
-
-    @property
-    def loop(self):
-        return self.__loop
-
-    @property
-    def is_idle(self) -> bool:
-        return time.time() - self.__last_message_time >= float(get_env("CCAT_STRAYCAT_TIMEOUT"))
+        return WhiteRabbit()
 
     # each time we access the file handlers, plugins can intervene
     @property

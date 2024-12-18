@@ -6,7 +6,7 @@ from cat.agents import AgentInput, AgentOutput, BaseAgent
 from cat.agents.memory_agent import MemoryAgent
 from cat.agents.procedures_agent import ProceduresAgent
 from cat.looking_glass import prompts
-from cat.memory.vector_memory_collection import DocumentRecall
+from cat.memory.utils import DocumentRecall
 from cat.utils import verbal_timedelta, restore_original_model
 from cat.env import get_env
 
@@ -19,7 +19,7 @@ class MainAgent(BaseAgent):
         if get_env("CCAT_LOG_LEVEL") in ["DEBUG", "INFO"]:
             self.verbose = True
 
-    async def execute(self, stray, *args, **kwargs) -> AgentOutput:
+    def execute(self, stray, *args, **kwargs) -> AgentOutput:
         # prepare input to be passed to the agent.
         #   Info will be extracted from working memory
         # Note: agent_input works both as a dict and as an object
@@ -51,7 +51,7 @@ class MainAgent(BaseAgent):
 
         # run tools and forms
         procedures_agent = ProceduresAgent()
-        procedures_agent_out: AgentOutput = await procedures_agent.execute(stray)
+        procedures_agent_out: AgentOutput = procedures_agent.execute(stray)
         if procedures_agent_out.return_direct:
             return procedures_agent_out
 
@@ -59,7 +59,7 @@ class MainAgent(BaseAgent):
         # - no procedures were recalled or selected or
         # - procedures have all return_direct=False
         memory_agent = MemoryAgent()
-        memory_agent_out: AgentOutput = await memory_agent.execute(
+        memory_agent_out: AgentOutput = memory_agent.execute(
             # TODO: should all agents only receive stray?
             stray, prompt_prefix=prompt_prefix, prompt_suffix=prompt_suffix
         )

@@ -111,7 +111,7 @@ async def upload_file(
     admitted_types = cats.cheshire_cat.file_handlers.keys()
 
     # Get file mime type
-    content_type = mimetypes.guess_type(file.filename)[0]
+    content_type, _ = mimetypes.guess_type(file.filename)
     log.info(f"Uploaded {content_type} down the rabbit hole")
 
     # check if MIME type of uploaded file is supported
@@ -269,7 +269,7 @@ async def upload_memory(
     """Upload a memory json file to the cat memory"""
 
     # Get file mime type
-    content_type = mimetypes.guess_type(file.filename)[0]
+    content_type, _ = mimetypes.guess_type(file.filename)
     log.info(f"Uploaded {content_type} down the rabbit hole")
     if content_type != "application/json":
         raise CustomValidationException(

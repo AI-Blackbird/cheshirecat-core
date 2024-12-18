@@ -18,6 +18,8 @@ from cat.exceptions import (
 )
 from cat.log import log
 from cat.looking_glass.bill_the_lizard import BillTheLizard
+from cat.looking_glass.white_rabbit import WhiteRabbit
+from cat.memory.vector_memory_builder import VectorMemoryBuilder
 from cat.routes import (
     admins_router as admins,
     auth,
@@ -47,11 +49,15 @@ async def lifespan(app: FastAPI):
     # - Not using "Depends" because it only supports callables (not instances)
     # - Starlette allows this: https://www.starlette.io/applications/#storing-state-on-the-app-instance
 
-    # load the Manager
+    # load the Manager and the Job Handler
     app.state.lizard = BillTheLizard()
+    app.state.white_rabbit = WhiteRabbit()
 
     # set a reference to asyncio event loop
     app.state.event_loop = asyncio.get_running_loop()
+
+    memory_builder = VectorMemoryBuilder()
+    memory_builder.build()
 
     # startup message with admin, public and swagger addresses
     log.welcome()
@@ -59,6 +65,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # shutdown Manager
+    app.state.white_rabbit.shutdown()
     await app.state.lizard.shutdown()
 
     get_db().close()

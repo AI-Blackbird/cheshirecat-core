@@ -2,8 +2,9 @@ import pytest
 
 from cat.convo.messages import MessageWhy, CatMessage, UserMessage
 from cat.looking_glass.stray_cat import StrayCat
-from cat.mad_hatter.decorators import CatHook
 from cat.memory.working_memory import WorkingMemory
+
+from tests.utils import api_key, create_mock_plugin_zip
 
 
 def test_stray_initialization(stray_no_memory):
@@ -24,7 +25,7 @@ def test_stray_nlp(stray_no_memory):
 def test_stray_call(stray_no_memory):
     msg = {"text": "Where do I go?"}
 
-    reply = stray_no_memory.loop.run_until_complete(stray_no_memory.__call__(UserMessage(**msg)))
+    reply = stray_no_memory.__call__(UserMessage(**msg))
 
     assert isinstance(reply, CatMessage)
     assert "You did not configure" in reply.content
@@ -48,7 +49,7 @@ def test_recall_to_working_memory(stray_no_memory, mocked_default_llm_answer_pro
     msg = {"text": msg_text}
 
     # send message
-    stray_no_memory.loop.run_until_complete(stray_no_memory.__call__(UserMessage(**msg)))
+    stray_no_memory.__call__(UserMessage(**msg))
 
     # recall after episodic memory was stored
     stray_no_memory.recall_relevant_memories_to_working_memory(msg_text)
@@ -74,7 +75,7 @@ def test_stray_recall_query(stray, embedder, mocked_default_llm_answer_prompt):
     msg = {"text": msg_text}
 
     # send message
-    stray.loop.run_until_complete(stray.__call__(UserMessage(**msg)))
+    stray.__call__(UserMessage(**msg))
 
     query = embedder.embed_query(msg_text)
     memories = stray.recall(query, "episodic")
@@ -90,7 +91,7 @@ def test_stray_recall_with_threshold(stray, embedder):
     msg = {"text": msg_text}
 
     # send message
-    stray.loop.run_until_complete(stray.__call__(UserMessage(**msg)))
+    stray.__call__(UserMessage(**msg))
 
     query = embedder.embed_query("Alice")
     memories = stray.recall(query, "episodic", threshold=1)
@@ -120,7 +121,7 @@ def test_stray_recall_override_working_memory(stray, embedder, mocked_default_ll
     msg = {"text": msg_text}
 
     # send message
-    stray.loop.run_until_complete(stray.__call__(UserMessage(**msg)))
+    stray.__call__(UserMessage(**msg))
 
     query = embedder.embed_query("Alice")
     memories = stray.recall(query, "episodic")
@@ -151,29 +152,33 @@ def test_stray_recall_by_metadata(secure_client, secure_client_headers, stray, e
         assert mem.document.metadata["source"] == file_name
 
 
-def test_stray_fast_reply_hook(stray):
-    def fast_reply_hook(fast_reply: dict, cat):
-        if user_msg in cat.working_memory.user_message.text:
-            fast_reply["output"] = fast_reply_msg
-            return fast_reply
+def test_stray_fast_reply_hook(secure_client, secure_client_headers, stray):
+    ccat = stray.cheshire_cat
+    ccat_headers = {"agent_id": ccat.id, "Authorization": f"Bearer {api_key}"}
 
-    user_msg = "hello"
-    fast_reply_msg = "This is a fast reply"
+    # manually install the plugin
+    zip_path = create_mock_plugin_zip(flat=True, plugin_id="mock_plugin_fast_reply")
+    zip_file_name = zip_path.split("/")[-1]  # mock_plugin.zip in tests/mocks folder
+    with open(zip_path, "rb") as f:
+        secure_client.post(
+            "/admins/plugins/upload/",
+            files={"file": (zip_file_name, f, "application/zip")},
+            headers=secure_client_headers
+        )
 
-    fast_reply_hook = CatHook(name="fast_reply", func=fast_reply_hook, priority=0)
-    fast_reply_hook.plugin_id = "fast_reply_hook"
-    stray.plugin_manager.hooks["fast_reply"] = [fast_reply_hook]
+    # activate for the new agent
+    secure_client.put("/plugins/toggle/mock_plugin_fast_reply", headers=ccat_headers)
 
-    msg = {"text": user_msg, "user_id": stray.user.id, "agent_id": stray.agent_id}
+    msg = {"text": "hello", "user_id": stray.user.id, "agent_id": stray.agent_id}
 
     # send message
-    res = stray.loop.run_until_complete(stray.__call__(msg))
+    res = stray.__call__(msg)
 
     assert isinstance(res, CatMessage)
-    assert res.content == fast_reply_msg
+    assert res.text == "This is a fast reply"
 
     # there should be NO side effects
-    assert stray.working_memory.user_message.text == user_msg
+    assert stray.working_memory.user_message.text == "hello"
     assert len(stray.working_memory.history) == 0
-    stray.recall_relevant_memories_to_working_memory(user_msg)
+    stray.recall_relevant_memories_to_working_memory("hello")
     assert len(stray.working_memory.episodic_memories) == 0
