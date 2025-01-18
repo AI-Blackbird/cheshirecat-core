@@ -20,14 +20,22 @@ if __name__ == "__main__":
             "proxy_headers": True,
             "forwarded_allow_ips": get_env("CCAT_CORS_FORWARDED_ALLOW_IPS"),
         }
+    # cast workers and limit_max_requests to int if they are set
+    workers = None
+    limit_max_requests = None
+    if get_env("CCAT_WORKERS"):
+        workers = int(get_env("CCAT_WORKERS"))
+
+    if get_env("CCAT_LIMIT_MAX_REQUESTS"):
+        limit_max_requests = int(get_env("CCAT_LIMIT_MAX_REQUESTS"))
 
     uvicorn.run(
         "cat.startup:cheshire_cat_api",
         host="0.0.0.0",
         port=80,
         use_colors=True,
-        workers=get_env("CCAT_WORKERS"),
-        limit_max_requests=get_env("CCAT_LIMIT_MAX_REQUESTS"),
+        workers=workers,
+        limit_max_requests=limit_max_requests,
         log_level=get_env("CCAT_LOG_LEVEL").lower(),
         **debug_config,
         **proxy_pass_config,

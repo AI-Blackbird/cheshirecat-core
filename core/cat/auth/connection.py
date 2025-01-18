@@ -124,13 +124,13 @@ class HTTPAuth(ConnectionAuth):
         return user
 
     async def get_user_stray(self, ccat: CheshireCat, user: AuthUserInfo, connection: Request) -> StrayCat:
-        current_stray = ccat.get_stray(user.id)
-        if current_stray:
-            return current_stray
-
+        # current_stray = ccat.get_stray(user.id)
+        # if current_stray:
+        #     return current_stray
+        #
         event_loop = connection.app.state.event_loop
         stray_cat = StrayCat(user_data=user, main_loop=event_loop, agent_id=ccat.id)
-        ccat.add_stray(stray_cat)
+        # ccat.add_stray(stray_cat)
 
         return stray_cat
     
@@ -192,20 +192,9 @@ class WebSocketAuth(ConnectionAuth):
         return user
 
     async def get_user_stray(self, ccat: CheshireCat, user: AuthUserInfo, connection: WebSocket) -> StrayCat:
-        stray: StrayCat = ccat.get_stray(user.id)
-        if stray:
-            await stray.close_connection()
-
-            # Set new ws connection
-            stray.reset_connection(connection)
-            log.info(
-                f"New websocket connection for user '{user.id}', the old one has been closed."
-            )
-            return stray
-
-        # Create a new stray and add it to the current cheshire cat
+        # keep the stray stateless
         stray = StrayCat(user_data=user, main_loop=asyncio.get_running_loop(), agent_id=ccat.id, ws=connection)
-        ccat.add_stray(stray)
+
         return stray
 
     def not_allowed(self, connection: WebSocket, **kwargs):

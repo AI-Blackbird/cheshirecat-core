@@ -59,12 +59,12 @@ class StrayCat:
         self.__loop = asyncio.new_event_loop()
         self.__last_message_time = time.time()
 
-    def __del__(self):
+    def close(self):
         self.__ws.close()
-        del self.working_memory
-        del self.__user
-        del self.__ws
-        del self.__agent_id
+        self.working_memory = None
+        self.__user = None
+        self.__ws = None
+        self.__agent_id = None
         self.__loop.close()
 
     def __eq__(self, other: "StrayCat") -> bool:
@@ -82,7 +82,12 @@ class StrayCat:
     def _send_ws_json(self, data: Any):
         # Run the coroutine in the main event loop in the main thread
         # and wait for the result
-        asyncio.run_coroutine_threadsafe(self.__ws.send_json(data), loop=self.__main_loop).result()
+        # handle fail if the connection is closed
+
+        try:
+            asyncio.run_coroutine_threadsafe(self.__ws.send_json(data), loop=self.__main_loop).result()
+        except RuntimeError as e:
+            log.error(f"Runtime error occurred while sending data: {e}")
 
     def _build_why(self, agent_output: AgentOutput | None = None) -> MessageWhy:
         memory = {str(c): [dict(d.document) | {
