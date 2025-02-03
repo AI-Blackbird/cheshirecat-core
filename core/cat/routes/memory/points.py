@@ -137,7 +137,7 @@ async def recall_memory_points(
                           description="Flat dictionary where each key-value pair represents a filter." 
                                       "The memory points returned will match the specified metadata criteria."
                           ),
-    stray: StrayCat = Depends(HTTPAuth(AuthResource.MEMORY, AuthPermission.READ)),
+    cats: ContextualCats = Depends(HTTPAuth(AuthResource.MEMORY, AuthPermission.READ)),
 ) -> Dict:
     """Search k memories similar to given text with specified metadata criteria.
         
@@ -168,8 +168,10 @@ async def recall_memory_points(
     ```
     """
 
+    ccat = cats.cheshire_cat
+
     # Embed the query to plot it in the Memory page
-    query_embedding = stray.embedder.embed_query(text)
+    query_embedding = ccat.embedder.embed_query(text)
     query = {
         "text": text,
         "vector": query_embedding,
@@ -177,18 +179,22 @@ async def recall_memory_points(
 
     # Loop over collections and retrieve nearby memories
     collections = list(
-        stray.memory.vectors.collections.keys()
+        VectorMemoryCollectionTypes
     )
     recalled = {}
     for c in collections:
         # only episodic collection has users
-        user_id = stray.user_id
+        user_id = cats.stray_cat.user.id
         if c == "episodic":
             metadata["source"] = user_id
         else:
             metadata.pop("source", None)
 
-        memories = stray.memory.vectors.collections[c].recall_memories_from_embedding(
+        #memories = stray.memory.vectors.collections[c].recall_memories_from_embedding(
+        #    query_embedding, k=k, metadata=metadata
+        #)
+
+        memories = ccat.memory.vectors.collections[str(c)].recall_memories_from_embedding(
             query_embedding, k=k, metadata=metadata
         )
 
@@ -205,7 +211,7 @@ async def recall_memory_points(
         "query": query,
         "vectors": {
             "embedder": str(
-                stray.embedder.__class__.__name__
+                ccat.embedder.__class__.__name__
             ),  # TODO: should be the config class name
             "collections": recalled,
         },
