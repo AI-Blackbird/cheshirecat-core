@@ -1,6 +1,6 @@
 from typing import Dict, List, Any
 from pydantic import BaseModel
-from fastapi import Query, APIRouter, Depends, Body
+from fastapi import Query, APIRouter, Depends, Body, Request
 from qdrant_client.http.models import UpdateResult, Record
 
 from cat.auth.connection import HTTPAuth, ContextualCats
