@@ -64,6 +64,10 @@ class DocumentRecall(BaseModelDict):
     vector: List[float] = Field(default_factory=list)
     id: str | None = None
 
+#from langchain.docstore.document import Document
+from langchain_core.documents import Document
+
+
 
 class VectorMemoryCollection:
     def __init__(self, agent_id: str, collection_name: str, vector_memory_config: VectorMemoryConfig):
@@ -162,21 +166,43 @@ class VectorMemoryCollection:
     def _tenant_field_condition(self) -> FieldCondition:
         return FieldCondition(key="tenant_id", match=MatchValue(value=self.agent_id))
 
+
+
     # adapted from https://github.com/langchain-ai/langchain/blob/bfc12a4a7644cfc4d832cc4023086a7a5374f46a/libs/langchain/langchain/vectorstores/qdrant.py#L1941
     # see also https://github.com/langchain-ai/langchain/blob/bfc12a4a7644cfc4d832cc4023086a7a5374f46a/libs/langchain/langchain/vectorstores/qdrant.py#L1965
     def _build_condition(self, key: str, value: Any) -> List[FieldCondition]:
         out = []
 
-        if isinstance(value, Dict):
-            out.extend(self._build_condition(f"{key}.{k}", v) for k, v in value.items())
-        elif isinstance(value, List):
-            out.extend(
-                self._build_condition(f"{key}[]" if isinstance(v, Dict) else f"{key}", v) for v in value
-            )
+        if isinstance(value, dict):
+            for _key, value in value.items():
+                out.extend(self._build_condition(f"{key}.{_key}", value))
+        elif isinstance(value, list):
+            for _value in value:
+                if isinstance(_value, dict):
+                    out.extend(self._build_condition(f"{key}[]", _value))
+                else:
+                    out.extend(self._build_condition(f"{key}", _value))
         else:
-            out.append(FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value)))
+            out.append(
+                FieldCondition(
+                    key=f"metadata.{key}",
+                    match=MatchValue(value=value),
+                )
+            )
 
         return out
+
+    def _qdrant_filter_from_dict(self, filter: dict) -> Filter:
+        if not filter or len(filter)<1:
+            return None
+
+        return Filter(
+            must=[
+                condition
+                for key, value in filter.items()
+                for condition in self._build_condition(key, value)
+            ]
+        )
 
     def create_payload_index(self, field_name: str, field_type: PayloadSchemaType):
         """
@@ -309,41 +335,15 @@ class VectorMemoryCollection:
         )
         return res
 
-    # retrieve similar memories from embedding
     def recall_memories_from_embedding(
-        self, embedding: List[float], metadata: Dict | None = None, k: int | None = 5, threshold: float | None = None
-    ) -> List[DocumentRecall]:
-        """
-        Retrieve memories from the collection based on an embedding vector. The memories are sorted by similarity to the
-        embedding vector. The metadata filter is applied to the memories before retrieving them. The number of memories
-        to retrieve is limited by the k parameter. The threshold parameter is used to filter out memories with a score
-        below the threshold. The memories are returned as a list of tuples, where each tuple contains a Document, the
-        similarity score, and the embedding vector of the memory. The Document contains the page content and metadata of
-        the memory. The similarity score is a float between 0 and 1, where 1 is the highest similarity. The embedding
-        vector is a list of floats. The list of tuples is sorted by similarity score in descending order. If the k
-        parameter is None, all memories are retrieved. If the threshold parameter is None, no memories are filtered out.
+        self, embedding, metadata=None, k=5, threshold=None
+    ):
+        """Retrieve similar memories from embedding"""
 
-        Args:
-            embedding: Embedding vector.
-            metadata: Dictionary containing metadata filter.
-            k: Number of memories to retrieve.
-            threshold: Similarity threshold.
-
-        Returns:
-            List: List of DocumentRecall.
-        """
-
-        conditions = [self._tenant_field_condition()]
-        if metadata:
-            conditions.extend([
-                condition for key, value in metadata.items() for condition in self._build_condition(key, value)
-            ])
-
-        # retrieve memories
         memories = self.client.search(
             collection_name=self.collection_name,
             query_vector=embedding,
-            query_filter=Filter(must=conditions),
+            query_filter=self._qdrant_filter_from_dict(metadata),
             with_payload=True,
             with_vectors=True,
             limit=k,
