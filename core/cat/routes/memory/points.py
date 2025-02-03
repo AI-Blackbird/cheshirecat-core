@@ -178,14 +178,12 @@ async def recall_memory_points(
     }
 
     # Loop over collections and retrieve nearby memories
-    collections = list(
-        VectorMemoryCollectionTypes
-    )
+    collections = [VectorMemoryCollectionTypes.EPISODIC, VectorMemoryCollectionTypes.DECLARATIVE, VectorMemoryCollectionTypes.PROCEDURAL]
     recalled = {}
     for c in collections:
         # only episodic collection has users
         user_id = cats.stray_cat.user.id
-        if c == "episodic":
+        if c == VectorMemoryCollectionTypes.EPISODIC:
             metadata["source"] = user_id
         else:
             metadata.pop("source", None)
