@@ -1,6 +1,6 @@
 from typing import Dict, List, Any
 from pydantic import BaseModel
-from fastapi import Query, APIRouter, Depends
+from fastapi import Query, APIRouter, Depends, Body
 from qdrant_client.http.models import UpdateResult, Record
 
 from cat.auth.connection import HTTPAuth, ContextualCats
@@ -47,7 +47,7 @@ class DeleteMemoryPointsByMetadataResponse(BaseModel):
     deleted: UpdateResult
 
 
-@router.get("/recall", response_model=RecallResponse)
+@router.get("/recall", response_model=RecallResponse, deprecated=True)
 async def recall_memory_points_from_text(
     text: str = Query(description="Find memories similar to this text."),
     k: int = Query(default=100, description="How many memories to return."),
@@ -127,6 +127,90 @@ async def recall_memory_points_from_text(
             collections=recalled
         )
     )
+
+@router.post("/recall")
+async def recall_memory_points(
+    request: Request,
+    text: str = Body(description="Find memories similar to this text."),
+    k: int = Body(default=100, description="How many memories to return."),
+    metadata: Dict = Body(default={}, 
+                          description="Flat dictionary where each key-value pair represents a filter." 
+                                      "The memory points returned will match the specified metadata criteria."
+                          ),
+    stray: StrayCat = Depends(HTTPAuth(AuthResource.MEMORY, AuthPermission.READ)),
+) -> Dict:
+    """Search k memories similar to given text with specified metadata criteria.
+        
+    Example
+    ----------
+    ```
+    collection = "episodic"
+    content = "MIAO!"
+    metadata = {"custom_key": "custom_value"}
+    req_json = {
+        "content": content,
+        "metadata": metadata,
+    }
+    # create a point
+    res = requests.post(
+        f"http://localhost:1865/memory/collections/{collection}/points", json=req_json
+    )
+    # recall with metadata
+    req_json = {
+        "text": "CAT", 
+        "metadata":{"custom_key":"custom_value"}
+    }
+    res = requests.post(
+        f"http://localhost:1865/memory/recall", json=req_json
+    )
+    json = res.json()
+    print(json)
+    ```
+    """
+
+    # Embed the query to plot it in the Memory page
+    query_embedding = stray.embedder.embed_query(text)
+    query = {
+        "text": text,
+        "vector": query_embedding,
+    }
+
+    # Loop over collections and retrieve nearby memories
+    collections = list(
+        stray.memory.vectors.collections.keys()
+    )
+    recalled = {}
+    for c in collections:
+        # only episodic collection has users
+        user_id = stray.user_id
+        if c == "episodic":
+            metadata["source"] = user_id
+        else:
+            metadata.pop("source", None)
+
+        memories = stray.memory.vectors.collections[c].recall_memories_from_embedding(
+            query_embedding, k=k, metadata=metadata
+        )
+
+        recalled[c] = []
+        for metadata_memories, score, vector, id in memories:
+            memory_dict = dict(metadata_memories)
+            memory_dict.pop("lc_kwargs", None)  # langchain stuff, not needed
+            memory_dict["id"] = id
+            memory_dict["score"] = float(score)
+            memory_dict["vector"] = vector
+            recalled[c].append(memory_dict)
+
+    return {
+        "query": query,
+        "vectors": {
+            "embedder": str(
+                stray.embedder.__class__.__name__
+            ),  # TODO: should be the config class name
+            "collections": recalled,
+        },
+    }
+
 
 
 @router.post("/collections/{collection_id}/points", response_model=MemoryPoint)
