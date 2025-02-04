@@ -1,5 +1,5 @@
 from typing import Dict
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 
 from cat.auth.connection import AdminConnectionAuth
 from cat.auth.permissions import AdminAuthResource, AuthPermission
@@ -9,6 +9,11 @@ from cat.factory.base_factory import ReplacedNLPConfig
 from cat.factory.embedder import EmbedderFactory
 from cat.looking_glass.bill_the_lizard import BillTheLizard
 from cat.routes.routes_utils import GetSettingsResponse, GetSettingResponse, UpsertSettingResponse
+
+from cat.auth.connection import HTTPAuth, ContextualCats
+from cat.auth.permissions import AuthPermission, AuthResource
+from .memory.points import RecallResponseQuery
+
 
 router = APIRouter()
 
@@ -74,3 +79,19 @@ def upsert_embedder_setting(
         raise CustomValidationException(f"{embedder_name} not supported. Must be one of {allowed_configurations}")
 
     return lizard.replace_embedder(embedder_name, payload)
+
+@router.get("/embedding", response_model=RecallResponseQuery)
+async def get_embedding(
+    text: str = Query(..., title="Text to embed"),
+    ccats : ContextualCats = Depends(HTTPAuth(AdminAuthResource.EMBEDDER, AuthPermission.READ))
+) -> RecallResponseQuery:
+    """Get the embedding of the query"""
+    ccat = ccats.cheshire_cat
+    embedder = ccat.embedder
+    response = RecallResponseQuery(
+        text=text,
+        vector=embedder.embed_query(text)
+    )
+    return response
+
+
