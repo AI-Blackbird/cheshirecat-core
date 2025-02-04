@@ -66,6 +66,7 @@ class VectorMemoryCollection:
             )
 
         return out
+
     
     def _qdrant_filter_from_dict(self, filter: dict) -> Filter:
         if not filter or len(filter)<1:
