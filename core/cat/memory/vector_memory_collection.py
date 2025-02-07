@@ -35,7 +35,6 @@ from cat.log import log
 from cat.env import get_env
 from cat.utils import Enum as BaseEnum, BaseModelDict
 
-
 class VectorMemoryCollectionTypes(BaseEnum):
     EPISODIC = "episodic"
     DECLARATIVE = "declarative"
@@ -339,10 +338,17 @@ class VectorMemoryCollection:
     ):
         """Retrieve similar memories from embedding"""
 
+        conditions = [self._tenant_field_condition()]
+        if metadata:
+            conditions.extend([
+                condition for key, value in metadata.items() for condition in self._build_condition(key, value)
+            ])
+
+
         memories = self.client.search(
             collection_name=self.collection_name,
             query_vector=embedding,
-            query_filter=self._qdrant_filter_from_dict(metadata),
+            query_filter=Filter(must=conditions),
             with_payload=True,
             with_vectors=True,
             limit=k,
