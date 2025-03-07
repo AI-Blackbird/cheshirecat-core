@@ -60,7 +60,6 @@ class StrayCat:
         self.__last_message_time = time.time()
 
     def close(self):
-        self.__ws.close()
         self.working_memory = None
         self.__user = None
         self.__ws = None
