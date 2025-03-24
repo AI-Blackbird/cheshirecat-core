@@ -28,6 +28,7 @@ def get_supported_env_variables():
         "CCAT_STRAYCAT_TIMEOUT": str(59),  # in seconds
         "CCAT_WORKERS": None,
         "CCAT_LIMIT_MAX_REQUESTS": None,
+        "CCAT_REDIS_TLS": False,
     }
 
 
