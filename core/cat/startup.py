@@ -27,6 +27,7 @@ from cat.routes import (
     file_manager,
     llm,
     memory_router as memory,
+    network,
     plugins,
     rabbit_hole,
     settings,
@@ -52,6 +53,11 @@ async def lifespan(app: FastAPI):
 
     # set a reference to asyncio event loop
     app.state.event_loop = asyncio.get_running_loop()
+    app.state.lizard._event_loop = app.state.event_loop
+
+    # Start network discovery now that event loop is available
+    if app.state.lizard.network_discovery:
+        asyncio.create_task(app.state.lizard.network_discovery.start())
 
     # startup message with admin, public and swagger addresses
     log.welcome()
@@ -98,6 +104,7 @@ cheshire_cat_api.include_router(embedder.router, tags=["Embedder"], prefix="/emb
 cheshire_cat_api.include_router(file_manager.router, tags=["File Manager"], prefix="/file_manager")
 cheshire_cat_api.include_router(llm.router, tags=["Large Language Model"], prefix="/llm")
 cheshire_cat_api.include_router(memory.router, prefix="/memory")
+cheshire_cat_api.include_router(network.router, tags=["Network Discovery"])
 cheshire_cat_api.include_router(plugins.router, tags=["Plugins"], prefix="/plugins")
 cheshire_cat_api.include_router(rabbit_hole.router, tags=["Rabbit Hole"], prefix="/rabbithole")
 cheshire_cat_api.include_router(settings.router, tags=["Settings"], prefix="/settings")

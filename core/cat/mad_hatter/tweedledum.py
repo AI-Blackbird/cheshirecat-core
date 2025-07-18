@@ -39,7 +39,7 @@ class Tweedledum(MadHatter):
         self.__plugins_folder = utils.get_plugins_path()
 
         # this callback is set from outside to be notified when plugin install is completed
-        self.on_finish_plugin_install_callback = lambda: None
+        self.on_finish_plugin_install_callback = lambda plugin_id: None
         # this callback is set from outside to be notified when plugin uninstall is completed
         self.on_finish_plugin_uninstall_callback = lambda plugin_id: None
 
@@ -57,7 +57,7 @@ class Tweedledum(MadHatter):
 
         # notify install has finished (the Lizard will ensure to notify the already loaded Cheshire Cats about the
         # plugin)
-        self.on_finish_plugin_install_callback()
+        self.on_finish_plugin_install_callback(plugin_id)
 
         return plugin_id
 

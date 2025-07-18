@@ -323,6 +323,29 @@ class CheshireCat:
         # recreate tools embeddings
         self.plugin_manager.find_plugins()
 
+        # Propagate LLM update to other nodes in the network
+        if hasattr(self, 'lizard') and self.lizard.network_discovery:
+            try:
+                import asyncio
+                # Use the event loop stored in BillTheLizard
+                if hasattr(self.lizard, '_event_loop') and self.lizard._event_loop:
+                    # Schedule the coroutine to run in the event loop
+                    asyncio.run_coroutine_threadsafe(
+                        self.lizard.network_discovery.propagate_update(
+                            "llm_update", 
+                            {
+                                "language_model_name": language_model_name, 
+                                "settings": settings,
+                                "agent_id": self.id
+                            }
+                        ), 
+                        self.lizard._event_loop
+                    )
+                else:
+                    log.warning("No event loop available for network update propagation")
+            except Exception as e:
+                log.warning(f"Could not propagate LLM update to network: {e}")
+
         return ReplacedNLPConfig(name=language_model_name, value=updater.new_setting["value"])
 
     def replace_auth_handler(self, auth_handler_name: str, settings: Dict) -> ReplacedNLPConfig:
