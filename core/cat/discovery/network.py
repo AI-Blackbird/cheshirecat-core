@@ -34,14 +34,11 @@ class NetworkDiscovery:
         """Start the network discovery service."""
         self.running = True
         
-        # Create multicast socket
+        # Create socket for Kubernetes discovery
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind(('', DISCOVERY_PORT))
-        
-        # Join multicast group
-        mreq = socket.inet_aton(MULTICAST_GROUP) + socket.inet_aton(self.host)
-        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         self.sock.setblocking(False)
         
         # Start background tasks
@@ -74,7 +71,7 @@ class NetworkDiscovery:
                 
                 data = json.dumps(message).encode('utf-8')
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 sock.sendto(data, (MULTICAST_GROUP, DISCOVERY_PORT))
                 sock.close()
                 
