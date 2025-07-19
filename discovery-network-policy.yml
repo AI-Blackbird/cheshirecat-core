@@ -1,0 +1,57 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cheshire-cat-pool-discovery
+  labels:
+    app.kubernetes.io/name: cheshire-cat-pool
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cheshire-cat-pool
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: cheshire-cat-pool
+    ports:
+    - protocol: UDP
+      port: 8765
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: cheshire-cat-pool
+    ports:
+    - protocol: UDP
+      port: 8765
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 6333
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
