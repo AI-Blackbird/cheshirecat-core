@@ -265,14 +265,11 @@ class NetworkDiscovery:
                 if plugin_url.startswith("upload://"):
                     # For uploaded plugins, force reload the plugin if it exists
                     filename = plugin_url.replace("upload://", "")
-                    if lizard.plugin_manager.plugin_exists(plugin_id):
-                        logger.info(f"Plugin {plugin_id} already exists, forcing reload due to upload on another node ('{filename}')")
-                        # Force reload the plugin by calling find_plugins which rediscoveres all plugins
-                        lizard.plugin_manager.find_plugins()
-                        # Notify all CheshireCats about the plugin changes
-                        lizard.notify_plugin_installed_local_only()
-                    else:
-                        logger.info(f"Plugin {plugin_id} was uploaded as '{filename}' on another node. Manual installation required.")
+                    logger.info(f"Plugin {plugin_id} already exists, forcing reload due to upload on another node ('{filename}')")
+                    # Force reload the plugin by calling find_plugins which rediscoveres all plugins
+                    lizard.plugin_manager.find_plugins()
+                    # Notify all CheshireCats about the plugin changes
+                    lizard.notify_plugin_installed_local_only()
                 else:
                     # For registry plugins, always install/update even if it exists
                     from cat.mad_hatter.registry import registry_download_plugin
