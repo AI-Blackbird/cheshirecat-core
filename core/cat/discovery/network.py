@@ -1,8 +1,6 @@
-import socket
 import uuid
 import json
-import httpx
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 import os
 import logging
@@ -10,15 +8,16 @@ import asyncio
 
 from cat.discovery.model.node_info import NodeInfo
 from cat.discovery.model.update_message import UpdateMessage
+from cat.db.database import get_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DISCOVERY_PORT = int(os.getenv("DISCOVERY_PORT", 8765))
-MULTICAST_GROUP = os.getenv("MULTICAST_GROUP", "224.1.1.1")
 HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL", 30))
 NODE_TIMEOUT = int(os.getenv("NODE_TIMEOUT", 90))
 UPDATE_PROPAGATION_TIMEOUT = int(os.getenv("UPDATE_PROPAGATION_TIMEOUT", 10))
+REDIS_NODE_PREFIX = "cheshire:nodes:"
+REDIS_UPDATES_CHANNEL = "cheshire:updates"
 
 class NetworkDiscovery:
     def __init__(self, node_id: str = None, host: str = "0.0.0.0", port: int = 8000):
@@ -28,25 +27,21 @@ class NetworkDiscovery:
         self.nodes = {}
         self.processed_updates = set()
         self.running = False
-        self.sock = None
+        self.redis = None
+        self.pubsub = None
     
     async def start(self):
         """Start the network discovery service."""
         self.running = True
         
-        # Create multicast socket
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind(('', DISCOVERY_PORT))
-        
-        # Join multicast group - use INADDR_ANY instead of self.host
-        mreq = socket.inet_aton(MULTICAST_GROUP) + socket.inet_aton("0.0.0.0")
-        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        self.sock.setblocking(False)
-        
+        # Initialize Redis connection
+        self.redis = get_db()
+        self.pubsub = self.redis.pubsub()
+        self.pubsub.subscribe(REDIS_UPDATES_CHANNEL)
+
         # Start background tasks
         asyncio.create_task(self._heartbeat_sender())
-        asyncio.create_task(self._heartbeat_receiver())
+        asyncio.create_task(self._update_receiver())
         asyncio.create_task(self._cleanup_dead_nodes())
         
         logger.info(f"Network discovery started on {self.host}:{self.port} with node ID {self.node_id}")
@@ -54,17 +49,30 @@ class NetworkDiscovery:
     async def stop(self):
         """Stop the network discovery service."""
         self.running = False
-        if self.sock:
-            self.sock.close()
-            self.sock = None
-        logger.info("Network discovery stopped for node ID {self.node_id}")
+        
+        # Remove node from Redis
+        if self.redis:
+            try:
+                self.redis.delete(f"{REDIS_NODE_PREFIX}{self.node_id}")
+            except Exception as e:
+                logger.error(f"Error removing node from Redis: {e}")
+        
+        # Close pubsub connection
+        if self.pubsub:
+            try:
+                self.pubsub.unsubscribe(REDIS_UPDATES_CHANNEL)
+                self.pubsub.close()
+                self.pubsub = None
+            except Exception as e:
+                logger.error(f"Error closing pubsub: {e}")
+                
+        logger.info(f"Network discovery stopped for node ID {self.node_id}")
     
     async def _heartbeat_sender(self):
-        """Send periodic heartbeat messages"""
+        """Register node in Redis and update heartbeat"""
         while self.running:
             try:
-                message = {
-                    'type': 'heartbeat',
+                node_data = {
                     'node_id': self.node_id,
                     'host': self.host,
                     'port': self.port,
@@ -72,59 +80,69 @@ class NetworkDiscovery:
                     'version': '1.0.0'
                 }
                 
-                data = json.dumps(message).encode('utf-8')
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-                sock.sendto(data, (MULTICAST_GROUP, DISCOVERY_PORT))
-                sock.close()
+                # Store node info with TTL
+                node_key = f"{REDIS_NODE_PREFIX}{self.node_id}"
+                self.redis.hset(node_key, mapping=node_data)
+                self.redis.expire(node_key, NODE_TIMEOUT)
+                
+                # Update local nodes cache
+                await self._refresh_nodes_cache()
                 
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
             except Exception as e:
                 logger.error(f"Error sending heartbeat: {e}")
                 await asyncio.sleep(5)
                 
-    async def _heartbeat_receiver(self):
-        """Receive and process heartbeat messages"""
-        while self.running:
-            try:
-                data, addr = self.sock.recvfrom(1024)
-                message = json.loads(data.decode('utf-8'))
-                
-                if message['type'] == 'heartbeat' and message['node_id'] != self.node_id:
+    async def _refresh_nodes_cache(self):
+        """Refresh local nodes cache from Redis"""
+        try:
+            # Get all node keys
+            node_keys = self.redis.keys(f"{REDIS_NODE_PREFIX}*")
+            current_nodes = {}
+            
+            for key in node_keys:
+                node_data = self.redis.hgetall(key)
+                if node_data and node_data.get('node_id') != self.node_id:
                     node_info = NodeInfo(
-                        node_id=message['node_id'],
-                        host=message['host'],
-                        port=message['port'],
-                        last_seen=datetime.now(),
-                        metadata={'version': message.get('version', '1.0.0')}
+                        node_id=node_data['node_id'],
+                        host=node_data['host'],
+                        port=int(node_data['port']),
+                        last_seen=datetime.fromisoformat(node_data['timestamp']),
+                        metadata={'version': node_data.get('version', '1.0.0')}
                     )
                     
-                    is_new_node = message['node_id'] not in self.nodes
-                    self.nodes[message['node_id']] = node_info
+                    is_new_node = node_data['node_id'] not in self.nodes
+                    current_nodes[node_data['node_id']] = node_info
                     
                     if is_new_node:
-                        logger.info(f"Discovered new node: {message['node_id']} at {message['host']}:{message['port']}")
-                
-            except socket.error:
-                await asyncio.sleep(0.1)
+                        logger.info(f"Discovered new node: {node_data['node_id']} at {node_data['host']}:{node_data['port']}")
+            
+            self.nodes = current_nodes
+            
+        except Exception as e:
+            logger.error(f"Error refreshing nodes cache: {e}")
+
+    async def _update_receiver(self):
+        """Receive and process update messages via Redis pub/sub"""
+        while self.running:
+            try:
+                message = self.pubsub.get_message(timeout=1.0)
+                if message and message['type'] == 'message':
+                    update_data = json.loads(message['data'])
+                    update = UpdateMessage.from_dict(update_data)
+                    await self.handle_received_update(update)
+                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+                    
             except Exception as e:
-                logger.error(f"Error receiving heartbeat: {e}")
+                logger.error(f"Error receiving update: {e}")
                 await asyncio.sleep(1)
     
     async def _cleanup_dead_nodes(self):
-        """Remove nodes that haven't been seen recently"""
+        """Remove expired nodes from Redis and local cache"""
         while self.running:
             try:
-                now = datetime.now()
-                dead_nodes = [
-                    node_id for node_id, node in self.nodes.items()
-                    if now - node.last_seen > timedelta(seconds=NODE_TIMEOUT)
-                ]
-                
-                for node_id in dead_nodes:
-                    logger.info(f"Removing dead node: {node_id}")
-                    del self.nodes[node_id]
-                
+                # Redis automatically removes expired keys, so we just refresh our cache
+                await self._refresh_nodes_cache()
                 await asyncio.sleep(30)
             except Exception as e:
                 logger.error(f"Error cleaning up dead nodes: {e}")
@@ -135,7 +153,7 @@ class NetworkDiscovery:
         return list(self.nodes.values())
     
     async def propagate_update(self, update_type: str, payload: dict):
-        """Propagate an update to all known nodes"""
+        """Propagate an update to all known nodes via Redis pub/sub"""
         update_id = str(uuid.uuid4())
         
         # Mark as processed to avoid self-propagation
@@ -149,29 +167,15 @@ class NetworkDiscovery:
             source_node=self.node_id
         )
         
-        # Send to all active nodes
-        tasks = []
-        for node in self.nodes.values():
-            tasks.append(self._send_update_to_node(node, update_message))
-        
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            successful = sum(1 for r in results if not isinstance(r, Exception))
-            logger.info(f"Update {update_id} propagated to {successful}/{len(tasks)} nodes")
+        try:
+            # Publish update to Redis channel
+            self.redis.publish(REDIS_UPDATES_CHANNEL, json.dumps(update_message.to_dict()))
+            logger.info(f"Update {update_id} published to Redis channel")
+        except Exception as e:
+            logger.error(f"Failed to publish update {update_id}: {e}")
         
         return update_id
     
-    async def _send_update_to_node(self, node: NodeInfo, update: UpdateMessage):
-        """Send update to a specific node"""
-        try:
-            async with httpx.AsyncClient(timeout=UPDATE_PROPAGATION_TIMEOUT) as client:
-                url = f"http://{node.host}:{node.port}/api/updates"
-                response = await client.post(url, json=update.to_dict())
-                response.raise_for_status()
-                return True
-        except Exception as e:
-            logger.error(f"Failed to send update to {node.node_id}: {e}")
-            return False
     
     async def handle_received_update(self, update: UpdateMessage) -> bool:
         """Handle an update received from another node"""
@@ -198,8 +202,6 @@ class NetworkDiscovery:
         elif update.update_type == "plugin_uninstalled":
             await self._handle_plugin_uninstalled(update)
         
-        # Propagate to other nodes (excluding source)
-        await self._propagate_to_others(update)
         
         return True
     
@@ -218,15 +220,24 @@ class NetworkDiscovery:
             lizard = BillTheLizard()
             
             # Update the specific CheshireCat instance with the same agent_id
-            ccat = lizard.get_cheshire_cat(agent_id)
+            ccat = lizard.get_cheshire_cat_from_db(agent_id)
             if ccat:
                 try:
                     logger.info(f"Updating LLM for agent {agent_id}")
-                    # Avoid triggering another network update by temporarily disabling network propagation
-                    original_lizard = getattr(ccat, 'lizard', None)
-                    ccat.lizard = None
-                    ccat.replace_llm(language_model_name, settings)
-                    ccat.lizard = original_lizard
+                    # Directly update the LLM configuration without triggering network propagation
+                    # by using the same logic as replace_llm but skipping the network update part
+                    from cat.adapters.factory_adapter import FactoryAdapter
+                    from cat.factory.llm import LLMFactory
+                    
+                    adapter = FactoryAdapter(LLMFactory(ccat.plugin_manager))
+                    adapter.upsert_factory_config_by_settings(ccat.id, language_model_name, settings)
+                    
+                    # Reload the LLM
+                    ccat.load_language_model()
+                    
+                    # Recreate tools embeddings
+                    ccat.plugin_manager.find_plugins()
+                    
                     logger.info(f"Successfully updated LLM for agent {agent_id}")
                 except Exception as e:
                     logger.error(f"Failed to update LLM for agent {agent_id}: {e}")
@@ -277,8 +288,7 @@ class NetworkDiscovery:
                     # Restore original callback
                     lizard.plugin_manager.on_finish_plugin_install_callback = original_callback
                     
-                    action = "updated" if lizard.plugin_manager.plugin_exists(plugin_id) else "installed"
-                    logger.info(f"Successfully {action} plugin {plugin_id} from network update")
+                    logger.info(f"Successfully processed plugin {plugin_id} from network update")
             except Exception as e:
                 logger.error(f"Failed to install/update plugin {plugin_id} from network update: {e}")
                 
@@ -318,12 +328,3 @@ class NetworkDiscovery:
         except Exception as e:
             logger.error(f"Error handling plugin uninstallation update: {e}")
     
-    async def _propagate_to_others(self, update: UpdateMessage):
-        """Propagate update to other nodes (excluding source)"""
-        tasks = []
-        for node in self.nodes.values():
-            if node.node_id != update.source_node:
-                tasks.append(self._send_update_to_node(node, update))
-        
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
