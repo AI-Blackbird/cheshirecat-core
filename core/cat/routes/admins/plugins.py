@@ -50,6 +50,15 @@ async def install_plugin(
     """Install a new plugin from a zip file"""
 
     plugin_archive_path = await load_uploaded_file(file, get_allowed_plugins_mime_types())
+    
+    # Register plugin for network propagation (using filename as URL for uploaded files)
+    from cat.mad_hatter.plugin_extractor import PluginExtractor
+    extractor = PluginExtractor(plugin_archive_path)
+    plugin_id = extractor.id
+    # For uploaded files, we'll use a special URL format to indicate it was uploaded
+    upload_url = f"upload://{file.filename}"
+    lizard.register_plugin_installation(plugin_id, upload_url)
+    
     lizard.plugin_manager.install_plugin(plugin_archive_path)
 
     return InstallPluginResponse(
@@ -69,6 +78,13 @@ async def install_plugin_from_registry(
     # download zip from registry
     try:
         tmp_plugin_path = await registry_download_plugin(payload["url"])
+        
+        # Register plugin URL for network propagation (before installation)
+        from cat.mad_hatter.plugin_extractor import PluginExtractor
+        extractor = PluginExtractor(tmp_plugin_path)
+        plugin_id = extractor.id
+        lizard.register_plugin_installation(plugin_id, payload["url"])
+        
         lizard.plugin_manager.install_plugin(tmp_plugin_path)
     except Exception as e:
         raise CustomValidationException(f"Could not download plugin from registry: {e}")

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Dict, List
 from uuid import uuid4
 from langchain_core.embeddings import Embeddings
@@ -10,6 +11,7 @@ from cat.auth.auth_utils import hash_password, DEFAULT_ADMIN_USERNAME
 from cat.auth.permissions import get_full_admin_permissions
 from cat.db.cruds import settings as crud_settings, users as crud_users, plugins as crud_plugins
 from cat.db.database import DEFAULT_SYSTEM_KEY
+from cat.discovery.network import NetworkDiscovery
 from cat.env import get_env
 from cat.exceptions import LoadMemoryException
 from cat.factory.base_factory import ReplacedNLPConfig
@@ -85,19 +87,45 @@ class BillTheLizard:
         # Main agent instance (for reasoning)
         self.main_agent = MainAgent()
 
+        # Network discovery for distributed CheshireCat nodes
+        # Get host and port from environment or use defaults
+        discovery_host = os.getenv("CCAT_CORE_HOST", "0.0.0.0")
+        discovery_port = int(os.getenv("CCAT_CORE_PORT", 80))
+        self.network_discovery = NetworkDiscovery(host=discovery_host, port=discovery_port)
+
+        # Registry to track plugin installation sources for network propagation
+        self.plugin_installation_registry = {}
+
         self.plugin_manager.on_finish_plugin_install_callback = self.notify_plugin_installed
         self.plugin_manager.on_finish_plugin_uninstall_callback = self.clean_up_plugin_uninstall
 
         # Initialize the default admin if not present
         if not crud_users.get_users(self.__key):
             self.__initialize_users()
+            
+        # Store event loop reference for later use
+        self._event_loop = None
 
-    def notify_plugin_installed(self):
+    def notify_plugin_installed(self, plugin_id: str):
         """
         Notify the loaded Cheshire cats that a plugin was installed, thus reloading the available plugins into the
-        cats.
+        cats. Also propagates the installation to other nodes in the network.
         """
+        self.notify_plugin_installed_local_only()
+        
+        # Check if we have a plugin URL for network propagation
+        plugin_url = self.plugin_installation_registry.get(plugin_id)
+        
+        # Propagate plugin installation to other nodes if network discovery is available
+        if self.network_discovery and plugin_url:
+            asyncio.create_task(self._propagate_plugin_installation(plugin_id, plugin_url))
+            # Clean up the registry entry after propagation
+            self.plugin_installation_registry.pop(plugin_id, None)
 
+    def notify_plugin_installed_local_only(self):
+        """
+        Notify only the local Cheshire cats that a plugin was installed, without network propagation.
+        """
         for ccat in self.__cheshire_cats.values():
             # inform the Cheshire Cats about the new plugin available in the system
             ccat.plugin_manager.find_plugins()
@@ -105,11 +133,24 @@ class BillTheLizard:
     def clean_up_plugin_uninstall(self, plugin_id: str):
         """
         Clean up the plugin uninstallation. It removes the plugin settings from the database.
+        Also propagates the uninstallation to other nodes in the network.
 
         Args:
             plugin_id: The id of the plugin to remove
         """
+        self.clean_up_plugin_uninstall_local_only(plugin_id)
+        
+        # Propagate plugin uninstallation to other nodes if network discovery is available
+        if self.network_discovery:
+            asyncio.create_task(self._propagate_plugin_uninstallation(plugin_id))
 
+    def clean_up_plugin_uninstall_local_only(self, plugin_id: str):
+        """
+        Clean up the plugin uninstallation locally without network propagation.
+
+        Args:
+            plugin_id: The id of the plugin to remove
+        """
         for ccat in self.__cheshire_cats.values():
             # deactivate plugins in the Cheshire Cats
             ccat.plugin_manager.deactivate_plugin(plugin_id)
@@ -304,6 +345,52 @@ class BillTheLizard:
 
         return new_cat
 
+    def register_plugin_installation(self, plugin_id: str, plugin_url: str):
+        """
+        Register a plugin installation URL for network propagation.
+        
+        Args:
+            plugin_id: The id of the plugin being installed
+            plugin_url: The URL used to install the plugin
+        """
+        self.plugin_installation_registry[plugin_id] = plugin_url
+
+    async def _propagate_plugin_installation(self, plugin_id: str, plugin_url: str):
+        """
+        Propagate plugin installation to other nodes in the network.
+
+        Args:
+            plugin_id: The id of the installed plugin
+            plugin_url: The URL used to install the plugin
+        """
+        if self.network_discovery:
+            payload = {
+                "plugin_id": plugin_id,
+                "plugin_url": plugin_url
+            }
+            try:
+                await self.network_discovery.propagate_update("plugin_installed", payload)
+                log.info(f"Propagated plugin installation: {plugin_id}")
+            except Exception as e:
+                log.error(f"Failed to propagate plugin installation {plugin_id}: {e}")
+
+    async def _propagate_plugin_uninstallation(self, plugin_id: str):
+        """
+        Propagate plugin uninstallation to other nodes in the network.
+
+        Args:
+            plugin_id: The id of the uninstalled plugin
+        """
+        if self.network_discovery:
+            payload = {
+                "plugin_id": plugin_id
+            }
+            try:
+                await self.network_discovery.propagate_update("plugin_uninstalled", payload)
+                log.info(f"Propagated plugin uninstallation: {plugin_id}")
+            except Exception as e:
+                log.error(f"Failed to propagate plugin uninstallation {plugin_id}: {e}")
+
     async def shutdown(self) -> None:
         """
         Shuts down the Bill The Lizard Manager. It closes all the strays' connections and stops the scheduling system.
@@ -315,6 +402,10 @@ class BillTheLizard:
         for ccat in self.__cheshire_cats.values():
             await ccat.shutdown()
         self.__cheshire_cats = {}
+
+        # Stop network discovery
+        if self.network_discovery:
+            await self.network_discovery.stop()
 
         self.white_rabbit.remove_job(self.__check_idle_strays_job_id)
         self.white_rabbit.shutdown()
@@ -328,6 +419,7 @@ class BillTheLizard:
         self.embedder_name = None
         self.embedder_size = None
         self.file_manager = None
+        self.network_discovery = None
 
     @property
     def cheshire_cats(self):
