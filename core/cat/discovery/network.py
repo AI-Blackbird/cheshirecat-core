@@ -182,6 +182,9 @@ class NetworkDiscovery:
         # Check if we've already processed this update
         if update.update_id in self.processed_updates:
             return False
+        if update.source_node == self.node_id:
+            logger.warning(f"Received update {update.update_id} from self, ignoring")
+            return False
         
         # Mark as processed
         self.processed_updates.add(update.update_id)
