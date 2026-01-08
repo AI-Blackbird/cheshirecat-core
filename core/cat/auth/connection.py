@@ -62,7 +62,8 @@ class ConnectionAuth(ABC):
         lizard: BillTheLizard = connection.app.state.lizard
         ccat = lizard.get_or_create_cheshire_cat(agent_id)
 
-        user = self.get_user_from_auth_handlers(connection, lizard, ccat)
+        # Offload synchronous auth/DB checks to a thread to avoid blocking the event loop
+        user = await asyncio.to_thread(self.get_user_from_auth_handlers, connection, lizard, ccat)
 
         if not user:
             # if no user was obtained, raise exception
