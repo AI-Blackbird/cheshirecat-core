@@ -8,7 +8,7 @@ import asyncio
 
 from cat.discovery.model.node_info import NodeInfo
 from cat.discovery.model.update_message import UpdateMessage
-from cat.db.database import get_db
+from cat.db.database import get_aiodb
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,9 +35,9 @@ class NetworkDiscovery:
         self.running = True
         
         # Initialize Redis connection
-        self.redis = get_db()
+        self.redis = await get_aiodb()
         self.pubsub = self.redis.pubsub()
-        self.pubsub.subscribe(REDIS_UPDATES_CHANNEL)
+        await self.pubsub.subscribe(REDIS_UPDATES_CHANNEL)
 
         # Start background tasks
         asyncio.create_task(self._heartbeat_sender())
@@ -53,15 +53,15 @@ class NetworkDiscovery:
         # Remove node from Redis
         if self.redis:
             try:
-                self.redis.delete(f"{REDIS_NODE_PREFIX}{self.node_id}")
+                await self.redis.delete(f"{REDIS_NODE_PREFIX}{self.node_id}")
             except Exception as e:
                 logger.error(f"Error removing node from Redis: {e}")
         
         # Close pubsub connection
         if self.pubsub:
             try:
-                self.pubsub.unsubscribe(REDIS_UPDATES_CHANNEL)
-                self.pubsub.close()
+                await self.pubsub.unsubscribe(REDIS_UPDATES_CHANNEL)
+                await self.pubsub.close()
                 self.pubsub = None
             except Exception as e:
                 logger.error(f"Error closing pubsub: {e}")
@@ -82,8 +82,8 @@ class NetworkDiscovery:
                 
                 # Store node info with TTL
                 node_key = f"{REDIS_NODE_PREFIX}{self.node_id}"
-                self.redis.hset(node_key, mapping=node_data)
-                self.redis.expire(node_key, NODE_TIMEOUT)
+                await self.redis.hset(node_key, mapping=node_data)
+                await self.redis.expire(node_key, NODE_TIMEOUT)
                 
                 # Update local nodes cache
                 await self._refresh_nodes_cache()
@@ -97,11 +97,10 @@ class NetworkDiscovery:
         """Refresh local nodes cache from Redis"""
         try:
             # Get all node keys
-            node_keys = self.redis.keys(f"{REDIS_NODE_PREFIX}*")
+            node_keys = await self.redis.keys(f"{REDIS_NODE_PREFIX}*")
             current_nodes = {}
-            
             for key in node_keys:
-                node_data = self.redis.hgetall(key)
+                node_data = await self.redis.hgetall(key)
                 if node_data and node_data.get('node_id') != self.node_id:
                     node_info = NodeInfo(
                         node_id=node_data['node_id'],
@@ -126,7 +125,7 @@ class NetworkDiscovery:
         """Receive and process update messages via Redis pub/sub"""
         while self.running:
             try:
-                message = self.pubsub.get_message(timeout=1.0)
+                message = await self.pubsub.get_message(timeout=1.0)
                 if message and message['type'] == 'message':
                     update_data = json.loads(message['data'])
                     update = UpdateMessage.from_dict(update_data)
@@ -169,7 +168,7 @@ class NetworkDiscovery:
         
         try:
             # Publish update to Redis channel
-            self.redis.publish(REDIS_UPDATES_CHANNEL, json.dumps(update_message.to_dict()))
+            await self.redis.publish(REDIS_UPDATES_CHANNEL, json.dumps(update_message.to_dict()))
             logger.info(f"Update {update_id} published to Redis channel")
         except Exception as e:
             logger.error(f"Failed to publish update {update_id}: {e}")
@@ -181,6 +180,9 @@ class NetworkDiscovery:
         """Handle an update received from another node"""
         # Check if we've already processed this update
         if update.update_id in self.processed_updates:
+            return False
+        if update.source_node == self.node_id:
+            logger.warning(f"Received update {update.update_id} from self, ignoring")
             return False
         
         # Mark as processed

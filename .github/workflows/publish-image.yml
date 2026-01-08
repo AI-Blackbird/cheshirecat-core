@@ -44,7 +44,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.TOKEN_GITHUB }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare image tags
         id: tags
